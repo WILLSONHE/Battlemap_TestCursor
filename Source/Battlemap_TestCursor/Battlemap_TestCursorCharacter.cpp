@@ -26,6 +26,8 @@ ABattlemap_TestCursorCharacter::ABattlemap_TestCursorCharacter()
 	GetCharacterMovement()->RotationRate = FRotator(0.f, 640.f, 0.f);
 	GetCharacterMovement()->bConstrainToPlane = true;
 	GetCharacterMovement()->bSnapToPlaneAtStart = true;
+	GetCharacterMovement()->GravityScale = 0.0f;
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Flying);
 
 	// Create a camera boom...
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -48,4 +50,45 @@ ABattlemap_TestCursorCharacter::ABattlemap_TestCursorCharacter()
 void ABattlemap_TestCursorCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+}
+
+void ABattlemap_TestCursorCharacter::AdjustCameraZoom(float Delta)
+{
+	if (!CameraBoom)
+	{
+		return;
+	}
+
+	CameraBoom->TargetArmLength = FMath::Clamp(CameraBoom->TargetArmLength + Delta, MinZoomLength, MaxZoomLength);
+}
+
+void ABattlemap_TestCursorCharacter::AdjustCameraYaw(float DeltaYaw)
+{
+	if (!CameraBoom)
+	{
+		return;
+	}
+
+	const FRotator CurrentRotation = CameraBoom->GetRelativeRotation();
+	CameraBoom->SetRelativeRotation(FRotator(CurrentRotation.Pitch, CurrentRotation.Yaw + DeltaYaw, CurrentRotation.Roll));
+}
+
+void ABattlemap_TestCursorCharacter::FocusOnWorldLocation(const FVector& WorldLocation)
+{
+	SetActorLocation(FVector(WorldLocation.X, WorldLocation.Y, GetActorLocation().Z));
+}
+
+void ABattlemap_TestCursorCharacter::PanCamera(const FVector2D& AxisInput, float PanSpeed)
+{
+	if (AxisInput.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FRotator CameraYawRotation(0.0f, CameraBoom ? CameraBoom->GetRelativeRotation().Yaw : GetActorRotation().Yaw, 0.0f);
+	const FVector Forward = FRotationMatrix(CameraYawRotation).GetUnitAxis(EAxis::X);
+	const FVector Right = FRotationMatrix(CameraYawRotation).GetUnitAxis(EAxis::Y);
+	const FVector Delta = ((Forward * AxisInput.Y) + (Right * AxisInput.X)) * PanSpeed;
+
+	SetActorLocation(GetActorLocation() + FVector(Delta.X, Delta.Y, 0.0f), false);
 }

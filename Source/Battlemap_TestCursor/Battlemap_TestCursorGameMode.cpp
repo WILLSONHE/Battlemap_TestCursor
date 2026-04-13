@@ -3,24 +3,88 @@
 #include "Battlemap_TestCursorGameMode.h"
 #include "Battlemap_TestCursorPlayerController.h"
 #include "Battlemap_TestCursorCharacter.h"
-#include "UObject/ConstructorHelpers.h"
+#include "Battlemap_TestCursorHUD.h"
+#include "TacticalMapGrid.h"
+#include "BattleUnit.h"
+#include "BattleCommsComponent.h"
+#include "Engine/World.h"
 
 ABattlemap_TestCursorGameMode::ABattlemap_TestCursorGameMode()
 {
-	// use our custom PlayerController class
 	PlayerControllerClass = ABattlemap_TestCursorPlayerController::StaticClass();
+	DefaultPawnClass = ABattlemap_TestCursorCharacter::StaticClass();
+	HUDClass = ABattlemap_TestCursorHUD::StaticClass();
+	TacticalMapClass = ATacticalMapGrid::StaticClass();
+	FriendlyUnitClass = ABattleInfantryUnit::StaticClass();
+	EnemyUnitClass = ABattleVehicleUnit::StaticClass();
+}
 
-	// set default pawn class to our Blueprinted character
-	static ConstructorHelpers::FClassFinder<APawn> PlayerPawnBPClass(TEXT("/Game/TopDown/Blueprints/BP_TopDownCharacter"));
-	if (PlayerPawnBPClass.Class != nullptr)
+void ABattlemap_TestCursorGameMode::BeginPlay()
+{
+	Super::BeginPlay();
+	SpawnTestEnvironment();
+}
+
+void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
+{
+	UWorld* World = GetWorld();
+	if (!World)
 	{
-		DefaultPawnClass = PlayerPawnBPClass.Class;
+		return;
 	}
 
-	// set default controller to our Blueprinted controller
-	static ConstructorHelpers::FClassFinder<APlayerController> PlayerControllerBPClass(TEXT("/Game/TopDown/Blueprints/BP_TopDownPlayerController"));
-	if(PlayerControllerBPClass.Class != NULL)
+	SpawnedMapGrid = World->SpawnActor<ATacticalMapGrid>(TacticalMapClass, FVector::ZeroVector, FRotator::ZeroRotator);
+	if (SpawnedMapGrid)
 	{
-		PlayerControllerClass = PlayerControllerBPClass.Class;
+		SpawnedMapGrid->BuildTestGrid(TestGridHalfExtent);
 	}
+
+	SpawnTestUnit(FVector(-1200.0f, -600.0f, 80.0f), TEXT("Alpha-1"), true);
+	SpawnTestUnit(FVector(-1200.0f, 600.0f, 80.0f), TEXT("Bravo-2"), true);
+	SpawnTestUnit(FVector(1600.0f, 0.0f, 80.0f), TEXT("Enemy-Tank"), false);
+
+	if (ABattlemap_TestCursorPlayerController* BattleController = Cast<ABattlemap_TestCursorPlayerController>(World->GetFirstPlayerController()))
+	{
+		BattleController->SetTacticalMapGrid(SpawnedMapGrid);
+		if (SpawnedUnits.Num() > 0)
+		{
+			BattleController->SetSelectedUnit(SpawnedUnits[0]);
+		}
+	}
+}
+
+void ABattlemap_TestCursorGameMode::SpawnTestUnit(const FVector& Location, const FString& UnitName, bool bFriendly)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	TSubclassOf<ABattleUnit> UnitClass = bFriendly ? FriendlyUnitClass : EnemyUnitClass;
+	if (!UnitClass)
+	{
+		return;
+	}
+
+	ABattleUnit* Unit = World->SpawnActor<ABattleUnit>(UnitClass, Location, FRotator::ZeroRotator);
+	if (!Unit)
+	{
+		return;
+	}
+
+	Unit->UnitLabel = UnitName;
+	Unit->bFriendly = bFriendly;
+	Unit->UnitData.UnitId = FName(*UnitName);
+	Unit->UnitData.Category = bFriendly ? EUnitCategory::Infantry : EUnitCategory::Vehicle;
+	Unit->UnitData.UnitType = bFriendly ? EUnitType::Infantry : EUnitType::Tank;
+	Unit->CurrentHealth = 100.0f;
+
+	if (Unit->CommsComponent)
+	{
+		Unit->CommsComponent->CommsChannel.Frequency = bFriendly ? 100 : 200;
+		Unit->CommsComponent->CommsChannel.State = ECommsState::Online;
+	}
+
+	SpawnedUnits.Add(Unit);
 }
