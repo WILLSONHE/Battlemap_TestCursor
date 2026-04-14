@@ -75,4 +75,3 @@ private:
 	UPROPERTY(EditAnywhere, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	float MaxFreeLookPitch = 89.0f;
 };
-

@@ -67,7 +67,7 @@ void ABattlemap_TestCursorCharacter::BeginPlay()
 
 void ABattlemap_TestCursorCharacter::Tick(float DeltaSeconds)
 {
-    Super::Tick(DeltaSeconds);
+	Super::Tick(DeltaSeconds);
 }
 
 void ABattlemap_TestCursorCharacter::AdjustCameraZoom(float Delta)

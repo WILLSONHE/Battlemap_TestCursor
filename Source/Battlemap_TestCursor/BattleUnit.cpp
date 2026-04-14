@@ -111,7 +111,8 @@ void ABattleUnit::SetSelected(bool bInSelected)
 	}
 
 	UnitMesh->SetRenderCustomDepth(bSelected);
-	UpdateMeshScaleVisual();
+	const FVector Scale = bSelected ? FVector(0.95f, 0.95f, 0.3f) : FVector(0.8f, 0.8f, 0.25f);
+	UnitMesh->SetWorldScale3D(Scale);
 
 	if (MoveCommandMarker)
 	{

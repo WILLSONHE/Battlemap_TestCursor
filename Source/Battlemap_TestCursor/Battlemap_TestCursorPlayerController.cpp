@@ -88,30 +88,7 @@ void ABattlemap_TestCursorPlayerController::BeginPlay()
 	bEnableMouseOverEvents = true;
 	bShowMouseCursor = true;
 
-	if (UWorld* World = GetWorld())
-	{
-		ConsoleCommand(TEXT("r.ShadowQuality 0"));
-		ConsoleCommand(TEXT("r.ContactShadows 0"));
-		ConsoleCommand(TEXT("r.DistanceFieldShadowing 0"));
-
-		for (TActorIterator<ALight> It(World); It; ++It)
-		{
-			ALight* Light = *It;
-			if (Light && Light->GetLightComponent())
-			{
-				Light->GetLightComponent()->CastShadows = false;
-			}
-		}
-
-		for (TActorIterator<ADirectionalLight> It(World); It; ++It)
-		{
-			ADirectionalLight* Light = *It;
-			if (Light && Light->GetLightComponent())
-			{
-				Light->GetLightComponent()->CastShadows = false;
-			}
-		}
-	}
+	// Keep scene lighting/shadows enabled. We control shadow behavior per-mesh.
 }
 
 void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
@@ -181,6 +158,36 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 
 void ABattlemap_TestCursorPlayerController::UpdateFogOfWar(float DeltaTime)
 {
+	if (!bEnableFogOfWar)
+	{
+		UWorld* World = GetWorld();
+		if (!World)
+		{
+			CachedVisibleEnemyCount = 0;
+			return;
+		}
+
+		int32 VisibleEnemyCount = 0;
+		for (TActorIterator<ABattleUnit> It(World); It; ++It)
+		{
+			ABattleUnit* Unit = *It;
+			if (!Unit || Unit->bFriendly || !Unit->IsAlive())
+			{
+				continue;
+			}
+			Unit->SetActorHiddenInGame(false);
+			Unit->SetActorEnableCollision(true);
+			if (Unit->UnitMesh)
+			{
+				Unit->UnitMesh->SetVisibility(true, true);
+				Unit->UnitMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			}
+			++VisibleEnemyCount;
+		}
+		CachedVisibleEnemyCount = VisibleEnemyCount;
+		return;
+	}
+
 	FogUpdateCooldown = FMath::Max(0.0f, FogUpdateCooldown - DeltaTime);
 	if (FogUpdateCooldown > 0.0f)
 	{
@@ -479,6 +486,44 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 
 	const bool bAttackCommand = ClickedUnit && !ClickedUnit->bFriendly;
 	int32 IssuedCount = 0;
+	FVector2D FormationForward = FVector2D::ZeroVector;
+	FVector FormationOrigin = CachedDestination;
+	if (!bAttackCommand)
+	{
+		FVector GroupCenter = FVector::ZeroVector;
+		int32 ValidUnitCount = 0;
+		for (ABattleUnit* Unit : SelectedUnits)
+		{
+			if (!Unit)
+			{
+				continue;
+			}
+			GroupCenter += Unit->GetActorLocation();
+			++ValidUnitCount;
+		}
+		if (ValidUnitCount > 0)
+		{
+			GroupCenter /= static_cast<float>(ValidUnitCount);
+			FormationForward = FVector2D(CachedDestination.X - GroupCenter.X, CachedDestination.Y - GroupCenter.Y).GetSafeNormal();
+		}
+
+		if (FormationForward.IsNearlyZero())
+		{
+			if (const ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
+			{
+				if (const UCameraComponent* Camera = BattleCharacter->GetTopDownCameraComponent())
+				{
+					const float CameraYawRad = FMath::DegreesToRadians(Camera->GetComponentRotation().Yaw);
+					FormationForward = FVector2D(FMath::Cos(CameraYawRad), FMath::Sin(CameraYawRad));
+				}
+			}
+		}
+		if (FormationForward.IsNearlyZero())
+		{
+			FormationForward = FVector2D(1.0f, 0.0f);
+		}
+	}
+
 	for (ABattleUnit* Unit : SelectedUnits)
 	{
 		if (!Unit
@@ -495,8 +540,20 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 		}
 		else
 		{
-			FVector MoveTarget = CachedDestination;
-			MoveTarget.Z = Unit->GetActorLocation().Z;
+			FVector MoveTarget = FormationOrigin;
+			if (bEnableFormationMove && SelectedUnits.Num() > 1)
+			{
+				const int32 SlotIndex = IssuedCount;
+				const int32 ColumnCount = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(SelectedUnits.Num())));
+				const int32 RowIndex = SlotIndex / FMath::Max(1, ColumnCount);
+				const int32 ColIndex = SlotIndex % FMath::Max(1, ColumnCount);
+				const float CenteredCol = static_cast<float>(ColIndex) - (static_cast<float>(ColumnCount - 1) * 0.5f);
+				const FVector2D Forward = FormationForward.GetSafeNormal();
+				const FVector2D Right(Forward.Y, -Forward.X);
+				const FVector2D Offset2D = (Right * (CenteredCol * FormationLateralSpacing)) - (Forward * (static_cast<float>(RowIndex) * FormationDepthSpacing));
+				MoveTarget.X += Offset2D.X;
+				MoveTarget.Y += Offset2D.Y;
+			}
 			Unit->IssueMoveCommandInterrupt(MoveTarget, ECommandPriority::High);
 		}
 
@@ -510,7 +567,14 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 	}
 	else
 	{
-		SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount));
+		if (bEnableFormationMove && IssuedCount > 1)
+		{
+			SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。"), IssuedCount));
+		}
+		else
+		{
+			SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount));
+		}
 	}
 }
 

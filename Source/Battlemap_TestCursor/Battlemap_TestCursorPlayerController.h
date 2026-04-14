@@ -67,6 +67,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Input", meta = (AllowPrivateAccess = "true"))
 	float RightMouseRotateSensitivity = 0.075f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Formation", meta = (AllowPrivateAccess = "true"))
+	bool bEnableFormationMove = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Formation", meta = (AllowPrivateAccess = "true"))
+	float FormationLateralSpacing = 350.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Formation", meta = (AllowPrivateAccess = "true"))
+	float FormationDepthSpacing = 320.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|FogOfWar", meta = (AllowPrivateAccess = "true"))
+	bool bEnableFogOfWar = false;
+
 protected:
 	/** True if the controlled character should navigate to the mouse cursor. */
 	uint32 bMoveToMouseCursor : 1;

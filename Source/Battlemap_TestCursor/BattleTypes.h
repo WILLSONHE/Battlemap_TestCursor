@@ -169,6 +169,7 @@ struct FTileData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FTileTerrainData Terrain;
+
 };
 
 USTRUCT(BlueprintType)
