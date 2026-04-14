@@ -21,6 +21,7 @@
 #include "BattleTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/HitResult.h"
+#include "EngineUtils.h"
 #include "UObject/ConstructorHelpers.h"
 #include "InputCoreTypes.h"
 
@@ -37,11 +38,15 @@ ABattlemap_TestCursorPlayerController::ABattlemap_TestCursorPlayerController()
 	SelectedUnit = nullptr;
 	StatusHint = TEXT("左键选择单位/地面，右键下达移动，Q 切换通讯状态。");
 	bRotateHeld = false;
+	bLeftMouseHeld = false;
 	bRightMouseHeld = false;
 	bHasDraggedSelection = false;
+	bIsBoxSelecting = false;
 	PendingPanInput = FVector2D::ZeroVector;
 	LastMouseScreenPosition = FVector2D::ZeroVector;
 	bHasLastMouseScreenPosition = false;
+	SelectionBoxStart = FVector2D::ZeroVector;
+	SelectionBoxEnd = FVector2D::ZeroVector;
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> MappingContextAsset(TEXT("/Game/TopDown/Input/IMC_Default.IMC_Default"));
 	if (MappingContextAsset.Succeeded())
@@ -104,6 +109,15 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 			{
 				BattleCharacter->PanCamera(FVector2D(-MouseDelta.X, MouseDelta.Y), 5.0f);
 			}
+		}
+	}
+
+	if (bLeftMouseHeld)
+	{
+		SelectionBoxEnd = CurrentMousePosition;
+		if (!bIsBoxSelecting && FVector2D::Distance(SelectionBoxStart, SelectionBoxEnd) >= SelectionDragThreshold)
+		{
+			bIsBoxSelecting = true;
 		}
 	}
 
@@ -220,11 +234,28 @@ void ABattlemap_TestCursorPlayerController::OnSetDestinationReleased()
 
 void ABattlemap_TestCursorPlayerController::OnLeftMousePressed()
 {
+	bLeftMouseHeld = true;
+	bIsBoxSelecting = false;
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+	if (GetMousePosition(MouseX, MouseY))
+	{
+		SelectionBoxStart = FVector2D(MouseX, MouseY);
+		SelectionBoxEnd = SelectionBoxStart;
+	}
 	OnSetDestinationTriggered();
 }
 
 void ABattlemap_TestCursorPlayerController::OnLeftMouseReleased()
 {
+	bLeftMouseHeld = false;
+	if (bIsBoxSelecting)
+	{
+		UpdateBoxSelection();
+		bIsBoxSelecting = false;
+		return;
+	}
+
 	UpdateSelectionFromCursor();
 	if (SelectedUnit)
 	{
@@ -293,23 +324,34 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 		CachedDestination = Hit.Location;
 	}
 
-	if (!SelectedUnit
-		|| !SelectedUnit->CommandComponent
-		|| !SelectedUnit->CommsComponent
-		|| !SelectedUnit->CommsComponent->IsCommandEnabled())
+	if (SelectedUnits.Num() == 0)
 	{
-		SetStatusHint(TEXT("命令失败：当前未选中单位或单位通讯中断。"));
+		SetStatusHint(TEXT("命令失败：当前未选中单位。"));
 		return;
 	}
 
-	FActiveCommand MoveCommand;
-	MoveCommand.CommandType = ECommandType::Move;
-	MoveCommand.Priority = ECommandPriority::High;
-	MoveCommand.TargetLocation = CachedDestination;
-	MoveCommand.TargetLocation.Z = SelectedUnit->GetActorLocation().Z;
-	MoveCommand.bDirectCommand = true;
-	SelectedUnit->CommandComponent->EnqueueCommand(MoveCommand);
-	SetStatusHint(FString::Printf(TEXT("已向 %s 下达移动命令。"), *SelectedUnit->UnitLabel));
+	int32 IssuedCount = 0;
+	for (ABattleUnit* Unit : SelectedUnits)
+	{
+		if (!Unit
+			|| !Unit->CommandComponent
+			|| !Unit->CommsComponent
+			|| !Unit->CommsComponent->IsCommandEnabled())
+		{
+			continue;
+		}
+
+		FActiveCommand MoveCommand;
+		MoveCommand.CommandType = ECommandType::Move;
+		MoveCommand.Priority = ECommandPriority::High;
+		MoveCommand.TargetLocation = CachedDestination;
+		MoveCommand.TargetLocation.Z = Unit->GetActorLocation().Z;
+		MoveCommand.bDirectCommand = true;
+		Unit->CommandComponent->EnqueueCommand(MoveCommand);
+		++IssuedCount;
+	}
+
+	SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount));
 }
 
 void ABattlemap_TestCursorPlayerController::OnToggleCommsTriggered()
@@ -346,46 +388,76 @@ void ABattlemap_TestCursorPlayerController::SetTacticalMapGrid(ATacticalMapGrid*
 
 void ABattlemap_TestCursorPlayerController::SetSelectedUnit(ABattleUnit* InSelectedUnit)
 {
-	if (SelectedUnit == InSelectedUnit)
+	TArray<ABattleUnit*> NewSelection;
+	if (InSelectedUnit)
 	{
-		return;
+		NewSelection.Add(InSelectedUnit);
+	}
+	SetSelectedUnits(NewSelection);
+}
+
+void ABattlemap_TestCursorPlayerController::SetSelectedUnits(const TArray<ABattleUnit*>& InSelectedUnits)
+{
+	for (ABattleUnit* Unit : SelectedUnits)
+	{
+		if (Unit)
+		{
+			Unit->SetSelected(false);
+		}
 	}
 
-	if (SelectedUnit)
+	SelectedUnits.Empty();
+	for (ABattleUnit* Unit : InSelectedUnits)
 	{
-		SelectedUnit->SetSelected(false);
+		if (Unit)
+		{
+			SelectedUnits.AddUnique(Unit);
+		}
 	}
 
-	SelectedUnit = InSelectedUnit;
-
-	if (SelectedUnit)
+	for (ABattleUnit* Unit : SelectedUnits)
 	{
-		SelectedUnit->SetSelected(true);
+		if (Unit)
+		{
+			Unit->SetSelected(true);
+		}
 	}
+
+	SelectedUnit = SelectedUnits.Num() > 0 ? SelectedUnits[0] : nullptr;
 }
 
 FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot() const
 {
 	FDebugBattleSnapshot Snapshot;
 	Snapshot.LastHint = StatusHint;
-	if (!SelectedUnit)
+	Snapshot.bIsBoxSelecting = bIsBoxSelecting;
+	Snapshot.SelectionBoxStart = SelectionBoxStart;
+	Snapshot.SelectionBoxEnd = SelectionBoxEnd;
+	Snapshot.SelectedUnitCount = SelectedUnits.Num();
+	for (ABattleUnit* Unit : SelectedUnits)
 	{
-		return Snapshot;
+		if (Unit)
+		{
+			Snapshot.SelectedUnitNames.Add(Unit->UnitLabel);
+		}
 	}
 
-	Snapshot.SelectedUnitName = SelectedUnit->UnitLabel;
-	Snapshot.SelectedUnitLocation = SelectedUnit->GetActorLocation();
-	Snapshot.Health = SelectedUnit->CurrentHealth;
-
-	if (SelectedUnit->CommsComponent)
+	if (SelectedUnit)
 	{
-		Snapshot.CommsState = SelectedUnit->CommsComponent->CommsChannel.State;
-	}
+		Snapshot.SelectedUnitName = SelectedUnit->UnitLabel;
+		Snapshot.SelectedUnitLocation = SelectedUnit->GetActorLocation();
+		Snapshot.Health = SelectedUnit->CurrentHealth;
 
-	if (SelectedUnit->SupplyComponent)
-	{
-		Snapshot.Food = SelectedUnit->SupplyComponent->Food;
-		Snapshot.Fuel = SelectedUnit->SupplyComponent->Fuel;
+		if (SelectedUnit->CommsComponent)
+		{
+			Snapshot.CommsState = SelectedUnit->CommsComponent->CommsChannel.State;
+		}
+
+		if (SelectedUnit->SupplyComponent)
+		{
+			Snapshot.Food = SelectedUnit->SupplyComponent->Food;
+			Snapshot.Fuel = SelectedUnit->SupplyComponent->Fuel;
+		}
 	}
 
 	return Snapshot;
@@ -406,9 +478,55 @@ void ABattlemap_TestCursorPlayerController::UpdateSelectionFromCursor()
 		return;
 	}
 
-	SetSelectedUnit(nullptr);
+	ClearSelectionInternal(false);
 	CachedDestination = Hit.Location;
 	SetStatusHint(TEXT("已取消选择，并记录新的地面目标点。"));
+}
+
+void ABattlemap_TestCursorPlayerController::UpdateBoxSelection()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const FVector2D Min(FMath::Min(SelectionBoxStart.X, SelectionBoxEnd.X), FMath::Min(SelectionBoxStart.Y, SelectionBoxEnd.Y));
+	const FVector2D Max(FMath::Max(SelectionBoxStart.X, SelectionBoxEnd.X), FMath::Max(SelectionBoxStart.Y, SelectionBoxEnd.Y));
+	TArray<ABattleUnit*> BoxSelectedUnits;
+
+	for (TActorIterator<ABattleUnit> It(World); It; ++It)
+	{
+		ABattleUnit* Unit = *It;
+		if (!Unit)
+		{
+			continue;
+		}
+
+		FVector2D ScreenPosition;
+		if (!ProjectWorldLocationToScreen(Unit->GetActorLocation(), ScreenPosition, true))
+		{
+			continue;
+		}
+
+		if (ScreenPosition.X >= Min.X && ScreenPosition.X <= Max.X
+			&& ScreenPosition.Y >= Min.Y && ScreenPosition.Y <= Max.Y)
+		{
+			BoxSelectedUnits.Add(Unit);
+		}
+	}
+
+	SetSelectedUnits(BoxSelectedUnits);
+	SetStatusHint(FString::Printf(TEXT("框选到 %d 个单位。"), SelectedUnits.Num()));
+}
+
+void ABattlemap_TestCursorPlayerController::ClearSelectionInternal(bool bClearHint)
+{
+	SetSelectedUnits(TArray<ABattleUnit*>());
+	if (bClearHint)
+	{
+		SetStatusHint(TEXT("已清除当前选中单位。"));
+	}
 }
 
 void ABattlemap_TestCursorPlayerController::SetStatusHint(const FString& NewHint)
@@ -486,6 +604,5 @@ void ABattlemap_TestCursorPlayerController::OnMouseYWhilePanning(float AxisValue
 
 void ABattlemap_TestCursorPlayerController::OnClearSelection()
 {
-	SetSelectedUnit(nullptr);
-	SetStatusHint(TEXT("已清除当前选中单位。"));
+	ClearSelectionInternal(true);
 }

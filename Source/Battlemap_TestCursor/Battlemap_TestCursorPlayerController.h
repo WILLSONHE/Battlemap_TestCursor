@@ -100,10 +100,15 @@ public:
 	void SetSelectedUnit(ABattleUnit* InSelectedUnit);
 
 	UFUNCTION(BlueprintCallable, Category = "Battle|Debug")
+	void SetSelectedUnits(const TArray<ABattleUnit*>& InSelectedUnits);
+
+	UFUNCTION(BlueprintCallable, Category = "Battle|Debug")
 	FDebugBattleSnapshot BuildDebugSnapshot() const;
 
 private:
 	void UpdateSelectionFromCursor();
+	void UpdateBoxSelection();
+	void ClearSelectionInternal(bool bClearHint);
 
 	void SetStatusHint(const FString& NewHint);
 
@@ -118,13 +123,21 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Battle")
 	ABattleUnit* SelectedUnit;
 
+	UPROPERTY()
+	TArray<ABattleUnit*> SelectedUnits;
+
 	FString StatusHint;
 	bool bRotateHeld = false;
+	bool bLeftMouseHeld = false;
 	bool bRightMouseHeld = false;
 	bool bHasDraggedSelection = false;
+	bool bIsBoxSelecting = false;
 	FVector2D PendingPanInput = FVector2D::ZeroVector;
 	FVector2D LastMouseScreenPosition = FVector2D::ZeroVector;
 	bool bHasLastMouseScreenPosition = false;
+	FVector2D SelectionBoxStart = FVector2D::ZeroVector;
+	FVector2D SelectionBoxEnd = FVector2D::ZeroVector;
+	float SelectionDragThreshold = 8.0f;
 };
 
 

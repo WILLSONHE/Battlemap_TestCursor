@@ -311,7 +311,13 @@ struct FDebugBattleSnapshot
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FString> SelectedUnitNames;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FString SelectedUnitName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 SelectedUnitCount = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector SelectedUnitLocation = FVector::ZeroVector;
@@ -330,4 +336,13 @@ struct FDebugBattleSnapshot
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FString LastHint;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsBoxSelecting = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector2D SelectionBoxStart = FVector2D::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector2D SelectionBoxEnd = FVector2D::ZeroVector;
 };
