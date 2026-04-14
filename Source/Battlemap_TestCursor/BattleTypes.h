@@ -128,6 +128,16 @@ enum class EMissionType : uint8
 	Escort
 };
 
+UENUM(BlueprintType)
+enum class EUnitRuntimeState : uint8
+{
+	Idle,
+	Move,
+	Attack,
+	Reload,
+	Dead
+};
+
 USTRUCT(BlueprintType)
 struct FTileTerrainData
 {
@@ -360,6 +370,21 @@ struct FDebugBattleSnapshot
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float CameraVerticalDistanceMeters = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 VisibleEnemyCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EUnitRuntimeState SelectedUnitRuntimeState = EUnitRuntimeState::Idle;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float SelectedUnitAttackCooldown = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float SelectedUnitReloadRemaining = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString SelectedUnitLastCombatEvent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsBoxSelecting = false;

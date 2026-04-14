@@ -37,6 +37,8 @@ ABattleUnit::ABattleUnit()
 
 	SetActorEnableCollision(true);
 	MoveCommandMarker = nullptr;
+	RuntimeState = EUnitRuntimeState::Idle;
+	LastCombatEvent = TEXT("无");
 
 	CommandComponent = CreateDefaultSubobject<UBattleCommandComponent>(TEXT("CommandComponent"));
 	DetectionComponent = CreateDefaultSubobject<UBattleDetectionComponent>(TEXT("DetectionComponent"));
@@ -47,15 +49,51 @@ ABattleUnit::ABattleUnit()
 void ABattleUnit::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+
+	if (!IsAlive())
+	{
+		RuntimeState = EUnitRuntimeState::Dead;
+		UpdateMeshScaleVisual();
+		return;
+	}
+
 	AttackCooldownRemaining = FMath::Max(0.0f, AttackCooldownRemaining - DeltaSeconds);
 	AutoEngageScanCooldown = FMath::Max(0.0f, AutoEngageScanCooldown - DeltaSeconds);
+	HitFlashRemaining = FMath::Max(0.0f, HitFlashRemaining - DeltaSeconds);
+	if (ReloadRemaining > 0.0f)
+	{
+		ReloadRemaining = FMath::Max(0.0f, ReloadRemaining - DeltaSeconds);
+		RuntimeState = EUnitRuntimeState::Reload;
+		if (ReloadRemaining <= 0.0f)
+		{
+			CurrentAmmo = MaxAmmo;
+			LastCombatEvent = FString::Printf(TEXT("%s 完成重装填。"), *UnitLabel);
+			if (bHasActiveCommand && ActiveCommand.CommandType == ECommandType::Attack && AttackTarget && AttackTarget->IsAlive())
+			{
+				RuntimeState = EUnitRuntimeState::Attack;
+			}
+			else
+			{
+				RuntimeState = EUnitRuntimeState::Idle;
+			}
+		}
+	}
+
 	ProcessActiveCommand(DeltaSeconds);
 	TryAutoEngage(DeltaSeconds);
+	UpdateMeshScaleVisual();
 }
 
 void ABattleUnit::ApplyDamageValue(float DamageValue)
 {
 	CurrentHealth = FMath::Max(0.0f, CurrentHealth - DamageValue);
+	HitFlashRemaining = 0.16f;
+	LastCombatEvent = FString::Printf(TEXT("%s 受到 %.0f 点伤害。"), *UnitLabel, DamageValue);
+	if (!IsAlive())
+	{
+		RuntimeState = EUnitRuntimeState::Dead;
+		LastCombatEvent = FString::Printf(TEXT("%s 已被击毁。"), *UnitLabel);
+	}
 }
 
 bool ABattleUnit::IsAlive() const
@@ -73,8 +111,7 @@ void ABattleUnit::SetSelected(bool bInSelected)
 	}
 
 	UnitMesh->SetRenderCustomDepth(bSelected);
-	const FVector Scale = bSelected ? FVector(0.95f, 0.95f, 0.3f) : FVector(0.8f, 0.8f, 0.25f);
-	UnitMesh->SetWorldScale3D(Scale);
+	UpdateMeshScaleVisual();
 
 	if (MoveCommandMarker)
 	{
@@ -95,6 +132,8 @@ void ABattleUnit::IssueMoveCommandInterrupt(const FVector& TargetLocation, EComm
 	ActiveCommand.bDirectCommand = true;
 	AttackTarget = nullptr;
 	bHasActiveCommand = true;
+	RuntimeState = EUnitRuntimeState::Move;
+	LastCombatEvent = FString::Printf(TEXT("%s 执行机动命令。"), *UnitLabel);
 	SpawnOrReplaceMoveMarker(TargetLocation);
 }
 
@@ -118,6 +157,8 @@ void ABattleUnit::IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandP
 	ActiveCommand.TargetLocation = TargetUnit->GetActorLocation();
 	ActiveCommand.bDirectCommand = true;
 	bHasActiveCommand = true;
+	RuntimeState = EUnitRuntimeState::Attack;
+	LastCombatEvent = FString::Printf(TEXT("%s 锁定目标 %s。"), *UnitLabel, *TargetUnit->UnitLabel);
 }
 
 float ABattleUnit::GetHoverCircleRadius() const
@@ -157,6 +198,10 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 
 	if (!bHasActiveCommand)
 	{
+		if (ReloadRemaining <= 0.0f && RuntimeState != EUnitRuntimeState::Dead)
+		{
+			RuntimeState = EUnitRuntimeState::Idle;
+		}
 		return;
 	}
 
@@ -169,8 +214,10 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 		}
 
 		bHasActiveCommand = false;
+		RuntimeState = EUnitRuntimeState::Idle;
 		return;
 	}
+	RuntimeState = EUnitRuntimeState::Move;
 
 	const FVector CurrentLocation = GetActorLocation();
 	const FVector Delta = ActiveCommand.TargetLocation - CurrentLocation;
@@ -181,6 +228,7 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 		EnforceMinimumUnitSpacing();
 		DestroyMoveMarker();
 		bHasActiveCommand = false;
+		RuntimeState = EUnitRuntimeState::Idle;
 		return;
 	}
 
@@ -191,6 +239,7 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 		EnforceMinimumUnitSpacing();
 		DestroyMoveMarker();
 		bHasActiveCommand = false;
+		RuntimeState = EUnitRuntimeState::Idle;
 	}
 	else
 	{
@@ -201,18 +250,30 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 
 void ABattleUnit::ProcessAttackCommand(float DeltaSeconds)
 {
+	if (ReloadRemaining > 0.0f)
+	{
+		RuntimeState = EUnitRuntimeState::Reload;
+		return;
+	}
+
 	if (!AttackTarget || !AttackTarget->IsAlive())
 	{
 		bHasActiveCommand = false;
+		LastCombatEvent = FString::Printf(TEXT("%s 丢失攻击目标。"), *UnitLabel);
 		AttackTarget = nullptr;
+		RuntimeState = EUnitRuntimeState::Idle;
 		return;
 	}
+
+	RuntimeState = EUnitRuntimeState::Attack;
 
 	const float Distance = FVector::Dist2D(GetActorLocation(), AttackTarget->GetActorLocation());
 	if (!bFriendly && Distance > DetectionRange)
 	{
+		LastCombatEvent = FString::Printf(TEXT("%s 目标超出探测范围。"), *UnitLabel);
 		AttackTarget = nullptr;
 		bHasActiveCommand = false;
+		RuntimeState = EUnitRuntimeState::Idle;
 		return;
 	}
 
@@ -231,18 +292,26 @@ void ABattleUnit::ProcessAttackCommand(float DeltaSeconds)
 
 	if (CurrentAmmo <= 0)
 	{
-		bHasActiveCommand = false;
+		StartReload();
 		return;
 	}
 
 	AttackTarget->ApplyDamageValue(AttackDamage);
 	CurrentAmmo = FMath::Max(0, CurrentAmmo - 1);
 	AttackCooldownRemaining = AttackCooldown;
+	LastCombatEvent = FString::Printf(TEXT("%s 命中 %s，造成 %.0f 伤害。"), *UnitLabel, *AttackTarget->UnitLabel, AttackDamage);
+
+	if (CurrentAmmo <= 0)
+	{
+		StartReload();
+	}
 
 	if (!AttackTarget->IsAlive())
 	{
+		LastCombatEvent = FString::Printf(TEXT("%s 消灭目标。"), *UnitLabel);
 		AttackTarget = nullptr;
 		bHasActiveCommand = false;
+		RuntimeState = EUnitRuntimeState::Idle;
 	}
 }
 
@@ -318,7 +387,7 @@ void ABattleUnit::EnforceMinimumUnitSpacing()
 
 void ABattleUnit::TryAutoEngage(float DeltaSeconds)
 {
-	if (bFriendly || !IsAlive() || bHasActiveCommand || CurrentAmmo <= 0)
+	if (bFriendly || !IsAlive() || bHasActiveCommand || CurrentAmmo <= 0 || ReloadRemaining > 0.0f)
 	{
 		return;
 	}
@@ -364,4 +433,37 @@ void ABattleUnit::TryAutoEngage(float DeltaSeconds)
 	{
 		IssueAttackCommandInterrupt(BestTarget, ECommandPriority::High);
 	}
+}
+
+void ABattleUnit::StartReload()
+{
+	if (ReloadRemaining > 0.0f || MaxAmmo <= 0)
+	{
+		return;
+	}
+
+	ReloadRemaining = FMath::Max(0.1f, ReloadDuration);
+	RuntimeState = EUnitRuntimeState::Reload;
+	LastCombatEvent = FString::Printf(TEXT("%s 弹药耗尽，开始重装填。"), *UnitLabel);
+}
+
+void ABattleUnit::UpdateMeshScaleVisual()
+{
+	if (!UnitMesh)
+	{
+		return;
+	}
+
+	FVector BaseScale = bSelected ? FVector(0.95f, 0.95f, 0.3f) : FVector(0.8f, 0.8f, 0.25f);
+	if (RuntimeState == EUnitRuntimeState::Dead)
+	{
+		BaseScale *= 0.75f;
+	}
+
+	if (HitFlashRemaining > 0.0f)
+	{
+		BaseScale *= 1.1f;
+	}
+
+	UnitMesh->SetWorldScale3D(BaseScale);
 }

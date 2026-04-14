@@ -54,6 +54,9 @@ ABattlemap_TestCursorPlayerController::ABattlemap_TestCursorPlayerController()
 	SelectionBoxEnd = FVector2D::ZeroVector;
 	RightClickPressScreenPosition = FVector2D::ZeroVector;
 	LastAttackTarget = nullptr;
+	FogUpdateCooldown = 0.0f;
+	FogUpdateInterval = 0.2f;
+	CachedVisibleEnemyCount = 0;
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> MappingContextAsset(TEXT("/Game/TopDown/Input/IMC_Default.IMC_Default"));
 	if (MappingContextAsset.Succeeded())
@@ -114,6 +117,7 @@ void ABattlemap_TestCursorPlayerController::BeginPlay()
 void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+	UpdateFogOfWar(DeltaTime);
 
 	float MouseX = 0.0f;
 	float MouseY = 0.0f;
@@ -173,6 +177,80 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 	}
 
 	LastMouseScreenPosition = CurrentMousePosition;
+}
+
+void ABattlemap_TestCursorPlayerController::UpdateFogOfWar(float DeltaTime)
+{
+	FogUpdateCooldown = FMath::Max(0.0f, FogUpdateCooldown - DeltaTime);
+	if (FogUpdateCooldown > 0.0f)
+	{
+		return;
+	}
+
+	FogUpdateCooldown = FogUpdateInterval;
+	ApplyEnemyVisibilityForFog();
+}
+
+void ABattlemap_TestCursorPlayerController::ApplyEnemyVisibilityForFog()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	TArray<ABattleUnit*> FriendlyUnits;
+	FriendlyUnits.Reserve(16);
+	for (TActorIterator<ABattleUnit> It(World); It; ++It)
+	{
+		ABattleUnit* Unit = *It;
+		if (!Unit || !Unit->IsAlive() || !Unit->bFriendly)
+		{
+			continue;
+		}
+		FriendlyUnits.Add(Unit);
+	}
+
+	int32 VisibleEnemyCount = 0;
+	for (TActorIterator<ABattleUnit> It(World); It; ++It)
+	{
+		ABattleUnit* EnemyUnit = *It;
+		if (!EnemyUnit || !EnemyUnit->IsAlive() || EnemyUnit->bFriendly)
+		{
+			continue;
+		}
+
+		bool bVisibleToFriendlies = false;
+		for (ABattleUnit* FriendlyUnit : FriendlyUnits)
+		{
+			if (!FriendlyUnit)
+			{
+				continue;
+			}
+
+			const float DistSq = FVector::DistSquared2D(FriendlyUnit->GetActorLocation(), EnemyUnit->GetActorLocation());
+			if (DistSq <= FMath::Square(FriendlyUnit->DetectionRange))
+			{
+				bVisibleToFriendlies = true;
+				break;
+			}
+		}
+
+		EnemyUnit->SetActorHiddenInGame(!bVisibleToFriendlies);
+		EnemyUnit->SetActorEnableCollision(bVisibleToFriendlies);
+		if (EnemyUnit->UnitMesh)
+		{
+			EnemyUnit->UnitMesh->SetVisibility(bVisibleToFriendlies, true);
+			EnemyUnit->UnitMesh->SetCollisionEnabled(bVisibleToFriendlies ? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
+		}
+
+		if (bVisibleToFriendlies)
+		{
+			++VisibleEnemyCount;
+		}
+	}
+
+	CachedVisibleEnemyCount = VisibleEnemyCount;
 }
 
 void ABattlemap_TestCursorPlayerController::SetupInputComponent()
@@ -543,6 +621,10 @@ FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot()
 
 		Snapshot.CurrentAmmo = SelectedUnit->CurrentAmmo;
 		Snapshot.MaxAmmo = SelectedUnit->MaxAmmo;
+		Snapshot.SelectedUnitRuntimeState = SelectedUnit->GetRuntimeState();
+		Snapshot.SelectedUnitAttackCooldown = SelectedUnit->GetAttackCooldownRemaining();
+		Snapshot.SelectedUnitReloadRemaining = SelectedUnit->GetReloadRemaining();
+		Snapshot.SelectedUnitLastCombatEvent = SelectedUnit->GetLastCombatEvent();
 	}
 
 	if (const ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
@@ -557,6 +639,7 @@ FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot()
 
 		Snapshot.CameraVerticalDistanceMeters = BattleCharacter->GetVerticalDistanceToReferencePlane() / 100.0f;
 	}
+	Snapshot.VisibleEnemyCount = CachedVisibleEnemyCount;
 
 	FHitResult HoverHit;
 	if (GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, HoverHit))

@@ -78,9 +78,15 @@ void ABattlemap_TestCursorGameMode::SpawnTestUnit(const FVector& Location, const
 	Unit->UnitData.UnitId = FName(*UnitName);
 	Unit->UnitData.Category = bFriendly ? EUnitCategory::Infantry : EUnitCategory::Vehicle;
 	Unit->UnitData.UnitType = bFriendly ? EUnitType::Infantry : EUnitType::Tank;
-	Unit->CurrentHealth = 100.0f;
+	Unit->UnitData.MaxHealth = 10000.0f;
+	Unit->CurrentHealth = 10000.0f;
+	Unit->AttackDamage = 1.0f;
 	Unit->AttackRange = bFriendly ? 1800.0f : 2200.0f;
 	Unit->DetectionRange = Unit->AttackRange * 2.0f;
+	if (!bFriendly && UnitName == TEXT("Enemy-Tank"))
+	{
+		Unit->DetectionRange = 150.0f;
+	}
 
 	if (Unit->CommsComponent)
 	{

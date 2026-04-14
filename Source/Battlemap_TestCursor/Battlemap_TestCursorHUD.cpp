@@ -30,15 +30,17 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 
 	const UEnum* EnumPtr = StaticEnum<ECommsState>();
 	const FString CommsName = EnumPtr ? EnumPtr->GetNameStringByValue(static_cast<int64>(Snapshot.CommsState)) : TEXT("Unknown");
+	const UEnum* RuntimeStateEnum = StaticEnum<EUnitRuntimeState>();
+	const FString RuntimeStateName = RuntimeStateEnum ? RuntimeStateEnum->GetNameStringByValue(static_cast<int64>(Snapshot.SelectedUnitRuntimeState)) : TEXT("Unknown");
 
 	TArray<FString> Lines;
 	Lines.Add(TEXT("Battlemap_Test 最小测试关卡"));
 	Lines.Add(TEXT("左键短按：单选单位或点地面清空"));
 	Lines.Add(TEXT("左键按住拖动：框选单位"));
-	Lines.Add(TEXT("右键短按：向当前选中单位下达移动命令"));
-	Lines.Add(TEXT("右键按住拖动：平行于地面拖拽镜头"));
+	Lines.Add(TEXT("右键短按：向当前选中单位下达命令"));
+	Lines.Add(TEXT("右键按住拖动：旋转镜头"));
+	Lines.Add(TEXT("左Alt+右键拖动：平行于地面拖拽镜头"));
 	Lines.Add(TEXT("鼠标滚轮：缩放镜头"));
-	Lines.Add(TEXT("按住鼠标中键并左右拖动：旋转镜头"));
 	Lines.Add(TEXT("空格：镜头聚焦当前选中单位"));
 	Lines.Add(TEXT("Q：切换当前选中单位通讯状态"));
 	Lines.Add(TEXT(" "));
@@ -49,10 +51,14 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 	Lines.Add(FString::Printf(TEXT("生命：%.0f"), Snapshot.Health));
 	Lines.Add(FString::Printf(TEXT("食物：%.0f  燃油：%.0f"), Snapshot.Food, Snapshot.Fuel));
 	Lines.Add(FString::Printf(TEXT("弹药：%d/%d"), Snapshot.CurrentAmmo, Snapshot.MaxAmmo));
+	Lines.Add(FString::Printf(TEXT("状态：%s"), *RuntimeStateName));
+	Lines.Add(FString::Printf(TEXT("攻击冷却：%.2fs  重装填剩余：%.2fs"), Snapshot.SelectedUnitAttackCooldown, Snapshot.SelectedUnitReloadRemaining));
 	Lines.Add(FString::Printf(TEXT("攻击目标：%s"), Snapshot.AttackTargetName.IsEmpty() ? TEXT("无") : *Snapshot.AttackTargetName));
 	Lines.Add(Snapshot.AttackTargetName.IsEmpty() ? TEXT("目标血量：") : FString::Printf(TEXT("目标血量：%.0f"), Snapshot.AttackTargetHealth));
+	Lines.Add(FString::Printf(TEXT("战斗事件：%s"), Snapshot.SelectedUnitLastCombatEvent.IsEmpty() ? TEXT("无") : *Snapshot.SelectedUnitLastCombatEvent));
 	Lines.Add(FString::Printf(TEXT("摄像机旋转 Pitch: %.1f  Roll: %.1f  Yaw: %.1f"), Snapshot.CameraPitch, Snapshot.CameraRoll, Snapshot.CameraYaw));
 	Lines.Add(FString::Printf(TEXT("摄像机垂直距离：%.2f m"), Snapshot.CameraVerticalDistanceMeters));
+	Lines.Add(FString::Printf(TEXT("战争迷雾：当前可见敌军 %d"), Snapshot.VisibleEnemyCount));
 	Lines.Add(FString::Printf(TEXT("提示：%s"), Snapshot.LastHint.IsEmpty() ? TEXT("无") : *Snapshot.LastHint));
 	for (const FString& UnitName : Snapshot.SelectedUnitNames)
 	{
@@ -144,7 +150,7 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 		for (TActorIterator<ABattleUnit> It(World); It; ++It)
 		{
 			ABattleUnit* Unit = *It;
-			if (!Unit || Unit->bFriendly)
+			if (!Unit || Unit->bFriendly || Unit->IsHidden())
 			{
 				continue;
 			}

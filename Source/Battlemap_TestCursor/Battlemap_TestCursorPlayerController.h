@@ -127,6 +127,8 @@ public:
 	const TArray<ABattleUnit*>& GetSelectedUnits() const { return SelectedUnits; }
 
 private:
+	void UpdateFogOfWar(float DeltaTime);
+	void ApplyEnemyVisibilityForFog();
 	void UpdateSelectionFromCursor();
 	void UpdateBoxSelection();
 	void ClearSelectionInternal(bool bClearHint);
@@ -166,6 +168,9 @@ private:
 	float RightDragThreshold = 6.0f;
 	float KeyboardForwardInput = 0.0f;
 	float KeyboardRightInput = 0.0f;
+	float FogUpdateCooldown = 0.0f;
+	float FogUpdateInterval = 0.2f;
+	int32 CachedVisibleEnemyCount = 0;
 };
 
 

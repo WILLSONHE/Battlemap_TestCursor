@@ -59,6 +59,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
 	int32 CurrentAmmo = 30;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
+	float ReloadDuration = 2.5f;
+
 	UFUNCTION(BlueprintCallable, Category = "Battle")
 	void ApplyDamageValue(float DamageValue);
 
@@ -79,6 +82,18 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Battle|Visual")
 	float GetHoverCircleRadius() const;
+
+	UFUNCTION(BlueprintPure, Category = "Battle|Debug")
+	EUnitRuntimeState GetRuntimeState() const { return RuntimeState; }
+
+	UFUNCTION(BlueprintPure, Category = "Battle|Debug")
+	float GetAttackCooldownRemaining() const { return AttackCooldownRemaining; }
+
+	UFUNCTION(BlueprintPure, Category = "Battle|Debug")
+	float GetReloadRemaining() const { return ReloadRemaining; }
+
+	UFUNCTION(BlueprintPure, Category = "Battle|Debug")
+	const FString& GetLastCombatEvent() const { return LastCombatEvent; }
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Components")
 	UBattleCommandComponent* CommandComponent;
@@ -111,6 +126,10 @@ protected:
 
 	void DestroyMoveMarker();
 
+	void StartReload();
+
+	void UpdateMeshScaleVisual();
+
 	bool AcquireNextCommand();
 
 	UPROPERTY()
@@ -123,6 +142,10 @@ protected:
 	float MinHoverCircleRadius = 120.0f;
 	float AutoEngageScanCooldown = 0.0f;
 	float AutoEngageScanInterval = 0.5f;
+	float ReloadRemaining = 0.0f;
+	float HitFlashRemaining = 0.0f;
+	EUnitRuntimeState RuntimeState = EUnitRuntimeState::Idle;
+	FString LastCombatEvent;
 
 	UPROPERTY()
 	ABattleUnit* AttackTarget = nullptr;
