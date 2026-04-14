@@ -37,7 +37,7 @@ ABattlemap_TestCursorPlayerController::ABattlemap_TestCursorPlayerController()
 	SelectedUnit = nullptr;
 	StatusHint = TEXT("左键选择单位/地面，右键下达移动，Q 切换通讯状态。");
 	bRotateHeld = false;
-	bLeftMouseHeld = false;
+	bRightMouseHeld = false;
 	bHasDraggedSelection = false;
 	PendingPanInput = FVector2D::ZeroVector;
 	LastMouseScreenPosition = FVector2D::ZeroVector;
@@ -94,7 +94,7 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 		return;
 	}
 
-	if (bLeftMouseHeld)
+	if (bRightMouseHeld)
 	{
 		const FVector2D MouseDelta = CurrentMousePosition - LastMouseScreenPosition;
 		if (!MouseDelta.IsNearlyZero())
@@ -159,7 +159,8 @@ void ABattlemap_TestCursorPlayerController::SetupInputComponent()
 	{
 		InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnLeftMousePressed);
 		InputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnLeftMouseReleased);
-		InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnCommandTriggered);
+		InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnRightMousePressed);
+		InputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnRightMouseReleased);
 		InputComponent->BindKey(EKeys::Q, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnToggleCommsTriggered);
 		InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnClearSelection);
 		InputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnZoomIn);
@@ -173,7 +174,6 @@ void ABattlemap_TestCursorPlayerController::SetupInputComponent()
 
 void ABattlemap_TestCursorPlayerController::OnInputStarted()
 {
-	bLeftMouseHeld = true;
 	bHasDraggedSelection = false;
 	bShowMouseCursor = true;
 	float MouseX = 0.0f;
@@ -213,48 +213,45 @@ void ABattlemap_TestCursorPlayerController::OnSetDestinationTriggered()
 
 void ABattlemap_TestCursorPlayerController::OnSetDestinationReleased()
 {
-	bLeftMouseHeld = false;
 	PendingPanInput = FVector2D::ZeroVector;
 	bShowMouseCursor = true;
-
-	if (bHasDraggedSelection)
-	{
-		FollowTime = 0.f;
-		return;
-	}
-
-	UpdateSelectionFromCursor();
-
-	// If it was a short press
-	if (FollowTime <= ShortPressThreshold)
-	{
-		if (!SelectedUnit)
-		{
-			UAIBlueprintHelperLibrary::SimpleMoveToLocation(this, CachedDestination);
-		}
-		else
-		{
-			SetStatusHint(FString::Printf(TEXT("已选中单位：%s。右键可下达移动命令。"), *SelectedUnit->UnitLabel));
-		}
-
-		if (FXCursor)
-		{
-			UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, FXCursor, CachedDestination, FRotator::ZeroRotator, FVector(1.f, 1.f, 1.f), true, true, ENCPoolMethod::None, true);
-		}
-	}
-
 	FollowTime = 0.f;
 }
 
 void ABattlemap_TestCursorPlayerController::OnLeftMousePressed()
 {
-	OnInputStarted();
 	OnSetDestinationTriggered();
 }
 
 void ABattlemap_TestCursorPlayerController::OnLeftMouseReleased()
 {
+	UpdateSelectionFromCursor();
+	if (SelectedUnit)
+	{
+		SetStatusHint(FString::Printf(TEXT("已选中单位：%s。"), *SelectedUnit->UnitLabel));
+	}
+	else if (FXCursor)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, FXCursor, CachedDestination, FRotator::ZeroRotator, FVector(1.f, 1.f, 1.f), true, true, ENCPoolMethod::None, true);
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnRightMousePressed()
+{
+	bRightMouseHeld = true;
+	OnInputStarted();
+	OnSetDestinationTriggered();
+}
+
+void ABattlemap_TestCursorPlayerController::OnRightMouseReleased()
+{
+	bRightMouseHeld = false;
+	const bool bWasDragging = bHasDraggedSelection;
 	OnSetDestinationReleased();
+	if (!bWasDragging)
+	{
+		OnCommandTriggered();
+	}
 }
 
 // Triggered every frame when the input is held down

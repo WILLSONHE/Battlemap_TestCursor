@@ -30,9 +30,9 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 
 	TArray<FString> Lines;
 	Lines.Add(TEXT("Battlemap_Test 最小测试关卡"));
-	Lines.Add(TEXT("左键短按：选择单位或记录目标点"));
-	Lines.Add(TEXT("左键按住拖动：平行于地面拖拽镜头"));
-	Lines.Add(TEXT("右键：向当前选中单位下达移动命令"));
+	Lines.Add(TEXT("左键：选择单位或记录目标点"));
+	Lines.Add(TEXT("右键短按：向当前选中单位下达移动命令"));
+	Lines.Add(TEXT("右键按住拖动：平行于地面拖拽镜头"));
 	Lines.Add(TEXT("鼠标滚轮：缩放镜头"));
 	Lines.Add(TEXT("按住鼠标中键并左右拖动：旋转镜头"));
 	Lines.Add(TEXT("空格：镜头聚焦当前选中单位"));

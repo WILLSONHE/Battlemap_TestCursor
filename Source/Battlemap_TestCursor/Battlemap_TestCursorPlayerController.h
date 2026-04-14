@@ -86,6 +86,8 @@ protected:
 	void OnFocusSelectedUnit();
 	void OnLeftMousePressed();
 	void OnLeftMouseReleased();
+	void OnRightMousePressed();
+	void OnRightMouseReleased();
 	void OnMouseXWhilePanning(float AxisValue);
 	void OnMouseYWhilePanning(float AxisValue);
 	void OnClearSelection();
@@ -118,7 +120,7 @@ private:
 
 	FString StatusHint;
 	bool bRotateHeld = false;
-	bool bLeftMouseHeld = false;
+	bool bRightMouseHeld = false;
 	bool bHasDraggedSelection = false;
 	FVector2D PendingPanInput = FVector2D::ZeroVector;
 	FVector2D LastMouseScreenPosition = FVector2D::ZeroVector;
