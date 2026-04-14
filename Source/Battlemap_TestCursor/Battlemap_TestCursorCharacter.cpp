@@ -34,7 +34,7 @@ ABattlemap_TestCursorCharacter::ABattlemap_TestCursorCharacter()
 	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->SetUsingAbsoluteRotation(true); // Don't want arm to rotate when character does
 	CameraBoom->TargetArmLength = 6000.0f;
-	CameraBoom->SetRelativeRotation(FRotator(-90.f, 0.f, 0.f));
+	CameraBoom->SetRelativeRotation(FRotator(DefaultCameraPitch, DefaultCameraYaw, 0.f));
 	CameraBoom->bDoCollisionTest = false; // Don't want to pull camera in when it collides with level
 
 	// Create a camera...
@@ -47,6 +47,24 @@ ABattlemap_TestCursorCharacter::ABattlemap_TestCursorCharacter()
 	PrimaryActorTick.bStartWithTickEnabled = true;
 }
 
+void ABattlemap_TestCursorCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (!TopDownCameraComponent)
+	{
+		return;
+	}
+
+	const float ClampedDefaultDistance = FMath::Clamp(DefaultVerticalDistanceToPlane, MinVerticalDistanceToPlane, MaxVerticalDistanceToPlane);
+	const float CurrentVerticalDistance = TopDownCameraComponent->GetComponentLocation().Z - ZoomReferencePlaneZ;
+	const float ZOffset = ClampedDefaultDistance - CurrentVerticalDistance;
+	if (!FMath::IsNearlyZero(ZOffset))
+	{
+		AddActorWorldOffset(FVector(0.0f, 0.0f, ZOffset), false);
+	}
+}
+
 void ABattlemap_TestCursorCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
@@ -54,12 +72,18 @@ void ABattlemap_TestCursorCharacter::Tick(float DeltaSeconds)
 
 void ABattlemap_TestCursorCharacter::AdjustCameraZoom(float Delta)
 {
-	if (!CameraBoom)
+	if (!TopDownCameraComponent)
 	{
 		return;
 	}
 
-	CameraBoom->TargetArmLength = FMath::Clamp(CameraBoom->TargetArmLength + Delta, MinZoomLength, MaxZoomLength);
+	const float CurrentVerticalDistance = TopDownCameraComponent->GetComponentLocation().Z - ZoomReferencePlaneZ;
+	const float NewVerticalDistance = FMath::Clamp(CurrentVerticalDistance + Delta, MinVerticalDistanceToPlane, MaxVerticalDistanceToPlane);
+	const float ZOffset = NewVerticalDistance - CurrentVerticalDistance;
+	if (!FMath::IsNearlyZero(ZOffset))
+	{
+		AddActorWorldOffset(FVector(0.0f, 0.0f, ZOffset), false);
+	}
 }
 
 void ABattlemap_TestCursorCharacter::AdjustCameraYaw(float DeltaYaw)
@@ -71,6 +95,41 @@ void ABattlemap_TestCursorCharacter::AdjustCameraYaw(float DeltaYaw)
 
 	const FRotator CurrentRotation = CameraBoom->GetRelativeRotation();
 	CameraBoom->SetRelativeRotation(FRotator(CurrentRotation.Pitch, CurrentRotation.Yaw + DeltaYaw, CurrentRotation.Roll));
+}
+
+void ABattlemap_TestCursorCharacter::AdjustCameraPitch(float DeltaPitch)
+{
+	if (!CameraBoom)
+	{
+		return;
+	}
+
+	const FRotator CurrentRotation = CameraBoom->GetRelativeRotation();
+	const float NewPitch = FMath::Clamp(CurrentRotation.Pitch + DeltaPitch, -89.0f, -10.0f);
+	CameraBoom->SetRelativeRotation(FRotator(NewPitch, CurrentRotation.Yaw, CurrentRotation.Roll));
+}
+
+void ABattlemap_TestCursorCharacter::AdjustCameraLookYaw(float DeltaYaw)
+{
+	if (!TopDownCameraComponent)
+	{
+		return;
+	}
+
+	const FRotator CurrentWorldRotation = TopDownCameraComponent->GetComponentRotation();
+	TopDownCameraComponent->SetWorldRotation(FRotator(CurrentWorldRotation.Pitch, CurrentWorldRotation.Yaw + DeltaYaw, 0.0f));
+}
+
+void ABattlemap_TestCursorCharacter::AdjustCameraLookPitch(float DeltaPitch)
+{
+	if (!TopDownCameraComponent)
+	{
+		return;
+	}
+
+	const FRotator CurrentWorldRotation = TopDownCameraComponent->GetComponentRotation();
+	const float NewPitch = FMath::Clamp(CurrentWorldRotation.Pitch + DeltaPitch, MinFreeLookPitch, MaxFreeLookPitch);
+	TopDownCameraComponent->SetWorldRotation(FRotator(NewPitch, CurrentWorldRotation.Yaw, 0.0f));
 }
 
 void ABattlemap_TestCursorCharacter::FocusOnWorldLocation(const FVector& WorldLocation)
@@ -85,10 +144,34 @@ void ABattlemap_TestCursorCharacter::PanCamera(const FVector2D& AxisInput, float
 		return;
 	}
 
-	const FRotator CameraYawRotation(0.0f, CameraBoom ? CameraBoom->GetRelativeRotation().Yaw : GetActorRotation().Yaw, 0.0f);
+	const float CameraYaw = TopDownCameraComponent ? TopDownCameraComponent->GetComponentRotation().Yaw : GetActorRotation().Yaw;
+	const FRotator CameraYawRotation(0.0f, CameraYaw, 0.0f);
 	const FVector Forward = FRotationMatrix(CameraYawRotation).GetUnitAxis(EAxis::X);
 	const FVector Right = FRotationMatrix(CameraYawRotation).GetUnitAxis(EAxis::Y);
 	const FVector Delta = ((Forward * AxisInput.Y) + (Right * AxisInput.X)) * PanSpeed;
 
 	SetActorLocation(GetActorLocation() + FVector(Delta.X, Delta.Y, 0.0f), false);
+}
+
+void ABattlemap_TestCursorCharacter::ResetCameraOrientation()
+{
+	if (!CameraBoom || !TopDownCameraComponent)
+	{
+		return;
+	}
+
+	CameraBoom->SetRelativeRotation(FRotator(DefaultCameraPitch, DefaultCameraYaw, 0.0f));
+	TopDownCameraComponent->SetRelativeRotation(FRotator::ZeroRotator);
+	const FRotator CameraWorldRotation = TopDownCameraComponent->GetComponentRotation();
+	TopDownCameraComponent->SetWorldRotation(FRotator(CameraWorldRotation.Pitch, CameraWorldRotation.Yaw, 0.0f));
+}
+
+float ABattlemap_TestCursorCharacter::GetVerticalDistanceToReferencePlane() const
+{
+	if (!TopDownCameraComponent)
+	{
+		return 0.0f;
+	}
+
+	return FMath::Abs(TopDownCameraComponent->GetComponentLocation().Z - ZoomReferencePlaneZ);
 }

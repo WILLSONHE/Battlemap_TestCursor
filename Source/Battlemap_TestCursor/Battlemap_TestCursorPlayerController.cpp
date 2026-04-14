@@ -21,6 +21,10 @@
 #include "BattleTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/HitResult.h"
+#include "Camera/CameraComponent.h"
+#include "Engine/DirectionalLight.h"
+#include "Engine/Light.h"
+#include "Components/LightComponent.h"
 #include "EngineUtils.h"
 #include "UObject/ConstructorHelpers.h"
 #include "InputCoreTypes.h"
@@ -40,6 +44,7 @@ ABattlemap_TestCursorPlayerController::ABattlemap_TestCursorPlayerController()
 	bRotateHeld = false;
 	bLeftMouseHeld = false;
 	bRightMouseHeld = false;
+	bAltHeld = false;
 	bHasDraggedSelection = false;
 	bIsBoxSelecting = false;
 	PendingPanInput = FVector2D::ZeroVector;
@@ -79,6 +84,31 @@ void ABattlemap_TestCursorPlayerController::BeginPlay()
 	bEnableClickEvents = true;
 	bEnableMouseOverEvents = true;
 	bShowMouseCursor = true;
+
+	if (UWorld* World = GetWorld())
+	{
+		ConsoleCommand(TEXT("r.ShadowQuality 0"));
+		ConsoleCommand(TEXT("r.ContactShadows 0"));
+		ConsoleCommand(TEXT("r.DistanceFieldShadowing 0"));
+
+		for (TActorIterator<ALight> It(World); It; ++It)
+		{
+			ALight* Light = *It;
+			if (Light && Light->GetLightComponent())
+			{
+				Light->GetLightComponent()->CastShadows = false;
+			}
+		}
+
+		for (TActorIterator<ADirectionalLight> It(World); It; ++It)
+		{
+			ADirectionalLight* Light = *It;
+			if (Light && Light->GetLightComponent())
+			{
+				Light->GetLightComponent()->CastShadows = false;
+			}
+		}
+	}
 }
 
 void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
@@ -87,6 +117,16 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 
 	float MouseX = 0.0f;
 	float MouseY = 0.0f;
+
+	if (!FMath::IsNearlyZero(KeyboardForwardInput) || !FMath::IsNearlyZero(KeyboardRightInput))
+	{
+		if (ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
+		{
+			const FVector2D KeyboardPanInput(KeyboardRightInput, KeyboardForwardInput);
+			BattleCharacter->PanCamera(KeyboardPanInput, KeyboardPanSpeed);
+		}
+	}
+
 	if (!GetMousePosition(MouseX, MouseY))
 	{
 		bHasLastMouseScreenPosition = false;
@@ -110,7 +150,15 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 			bHasDraggedSelection = true;
 			if (ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
 			{
-				BattleCharacter->PanCamera(FVector2D(-MouseDelta.X, MouseDelta.Y), 4.0f);
+				if (bAltHeld)
+				{
+					BattleCharacter->PanCamera(FVector2D(-MouseDelta.X, MouseDelta.Y), AltMapDragSensitivity);
+				}
+				else
+				{
+					BattleCharacter->AdjustCameraLookYaw(MouseDelta.X * RightMouseRotateSensitivity);
+					BattleCharacter->AdjustCameraLookPitch(-MouseDelta.Y * RightMouseRotateSensitivity);
+				}
 			}
 		}
 	}
@@ -185,6 +233,16 @@ void ABattlemap_TestCursorPlayerController::SetupInputComponent()
 		InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnRotatePressed);
 		InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnRotateReleased);
 		InputComponent->BindAxisKey(EKeys::MouseX, this, &ABattlemap_TestCursorPlayerController::OnRotateAxis);
+		InputComponent->BindKey(EKeys::W, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveForwardPressed);
+		InputComponent->BindKey(EKeys::W, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveForwardReleased);
+		InputComponent->BindKey(EKeys::S, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveBackwardPressed);
+		InputComponent->BindKey(EKeys::S, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveBackwardReleased);
+		InputComponent->BindKey(EKeys::D, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveRightPressed);
+		InputComponent->BindKey(EKeys::D, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveRightReleased);
+		InputComponent->BindKey(EKeys::A, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveLeftPressed);
+		InputComponent->BindKey(EKeys::A, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveLeftReleased);
+		InputComponent->BindKey(EKeys::LeftAlt, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnAltPressed);
+		InputComponent->BindKey(EKeys::LeftAlt, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnAltReleased);
 		InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnFocusSelectedUnit);
 	}
 }
@@ -487,6 +545,19 @@ FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot()
 		Snapshot.MaxAmmo = SelectedUnit->MaxAmmo;
 	}
 
+	if (const ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
+	{
+		if (const UCameraComponent* Camera = BattleCharacter->GetTopDownCameraComponent())
+		{
+			const FRotator CameraWorldRotation = Camera->GetComponentRotation();
+			Snapshot.CameraPitch = CameraWorldRotation.Pitch;
+			Snapshot.CameraRoll = CameraWorldRotation.Roll;
+			Snapshot.CameraYaw = CameraWorldRotation.Yaw;
+		}
+
+		Snapshot.CameraVerticalDistanceMeters = BattleCharacter->GetVerticalDistanceToReferencePlane() / 100.0f;
+	}
+
 	FHitResult HoverHit;
 	if (GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, HoverHit))
 	{
@@ -622,17 +693,70 @@ void ABattlemap_TestCursorPlayerController::OnRotateAxis(float AxisValue)
 
 void ABattlemap_TestCursorPlayerController::OnFocusSelectedUnit()
 {
-	if (!SelectedUnit)
-	{
-		SetStatusHint(TEXT("当前没有选中单位。"));
-		return;
-	}
-
 	if (ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
 	{
-		BattleCharacter->FocusOnWorldLocation(SelectedUnit->GetActorLocation());
-		SetStatusHint(FString::Printf(TEXT("镜头已聚焦到 %s。"), *SelectedUnit->UnitLabel));
+		BattleCharacter->ResetCameraOrientation();
+
+		if (SelectedUnit)
+		{
+			BattleCharacter->FocusOnWorldLocation(SelectedUnit->GetActorLocation());
+			SetStatusHint(FString::Printf(TEXT("镜头已聚焦并重置到 %s。"), *SelectedUnit->UnitLabel));
+		}
+		else
+		{
+			SetStatusHint(TEXT("镜头角度已重置。"));
+		}
 	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveForwardPressed()
+{
+	KeyboardForwardInput += 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveForwardReleased()
+{
+	KeyboardForwardInput -= 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveBackwardPressed()
+{
+	KeyboardForwardInput -= 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveBackwardReleased()
+{
+	KeyboardForwardInput += 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveRightPressed()
+{
+	KeyboardRightInput += 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveRightReleased()
+{
+	KeyboardRightInput -= 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveLeftPressed()
+{
+	KeyboardRightInput -= 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnMoveLeftReleased()
+{
+	KeyboardRightInput += 1.0f;
+}
+
+void ABattlemap_TestCursorPlayerController::OnAltPressed()
+{
+	bAltHeld = true;
+}
+
+void ABattlemap_TestCursorPlayerController::OnAltReleased()
+{
+	bAltHeld = false;
 }
 
 void ABattlemap_TestCursorPlayerController::OnMouseXWhilePanning(float AxisValue)

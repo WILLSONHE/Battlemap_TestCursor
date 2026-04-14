@@ -58,6 +58,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess = "true"))
 	UInputAction* ToggleCommsAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Input", meta = (AllowPrivateAccess = "true"))
+	float KeyboardPanSpeed = 35.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Input", meta = (AllowPrivateAccess = "true"))
+	float AltMapDragSensitivity = 6.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Input", meta = (AllowPrivateAccess = "true"))
+	float RightMouseRotateSensitivity = 0.075f;
+
 protected:
 	/** True if the controlled character should navigate to the mouse cursor. */
 	uint32 bMoveToMouseCursor : 1;
@@ -84,6 +93,16 @@ protected:
 	void OnRotateReleased();
 	void OnRotateAxis(float AxisValue);
 	void OnFocusSelectedUnit();
+	void OnMoveForwardPressed();
+	void OnMoveForwardReleased();
+	void OnMoveBackwardPressed();
+	void OnMoveBackwardReleased();
+	void OnMoveRightPressed();
+	void OnMoveRightReleased();
+	void OnMoveLeftPressed();
+	void OnMoveLeftReleased();
+	void OnAltPressed();
+	void OnAltReleased();
 	void OnLeftMousePressed();
 	void OnLeftMouseReleased();
 	void OnRightMousePressed();
@@ -134,6 +153,7 @@ private:
 	bool bRotateHeld = false;
 	bool bLeftMouseHeld = false;
 	bool bRightMouseHeld = false;
+	bool bAltHeld = false;
 	bool bHasDraggedSelection = false;
 	bool bIsBoxSelecting = false;
 	FVector2D PendingPanInput = FVector2D::ZeroVector;
@@ -144,6 +164,8 @@ private:
 	float SelectionDragThreshold = 8.0f;
 	FVector2D RightClickPressScreenPosition = FVector2D::ZeroVector;
 	float RightDragThreshold = 6.0f;
+	float KeyboardForwardInput = 0.0f;
+	float KeyboardRightInput = 0.0f;
 };
 
 

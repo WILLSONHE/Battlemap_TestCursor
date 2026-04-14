@@ -350,6 +350,18 @@ struct FDebugBattleSnapshot
 	float AttackTargetHealth = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float CameraPitch = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float CameraRoll = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float CameraYaw = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float CameraVerticalDistanceMeters = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsBoxSelecting = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
