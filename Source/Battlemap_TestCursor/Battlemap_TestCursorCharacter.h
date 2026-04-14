@@ -43,6 +43,6 @@ private:
 	float MinZoomLength = 900.0f;
 
 	UPROPERTY(EditAnywhere, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	float MaxZoomLength = 4000.0f;
+	float MaxZoomLength = 8000.0f;
 };
 

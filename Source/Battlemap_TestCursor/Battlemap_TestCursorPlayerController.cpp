@@ -482,12 +482,19 @@ FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot()
 			Snapshot.Food = SelectedUnit->SupplyComponent->Food;
 			Snapshot.Fuel = SelectedUnit->SupplyComponent->Fuel;
 		}
+
+		Snapshot.CurrentAmmo = SelectedUnit->CurrentAmmo;
+		Snapshot.MaxAmmo = SelectedUnit->MaxAmmo;
 	}
 
-	if (LastAttackTarget.IsValid())
+	FHitResult HoverHit;
+	if (GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, HoverHit))
 	{
-		Snapshot.AttackTargetName = LastAttackTarget->UnitLabel;
-		Snapshot.AttackTargetHealth = LastAttackTarget->CurrentHealth;
+		if (ABattleUnit* HoverUnit = Cast<ABattleUnit>(HoverHit.GetActor()))
+		{
+			Snapshot.AttackTargetName = HoverUnit->UnitLabel;
+			Snapshot.AttackTargetHealth = HoverUnit->CurrentHealth;
+		}
 	}
 
 	return Snapshot;

@@ -50,6 +50,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
 	float AttackCooldown = 1.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Detection")
+	float DetectionRange = 2200.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
+	int32 MaxAmmo = 30;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
+	int32 CurrentAmmo = 30;
+
 	UFUNCTION(BlueprintCallable, Category = "Battle")
 	void ApplyDamageValue(float DamageValue);
 
@@ -67,6 +76,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
 	void IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandPriority Priority = ECommandPriority::High);
+
+	UFUNCTION(BlueprintPure, Category = "Battle|Visual")
+	float GetHoverCircleRadius() const;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Components")
 	UBattleCommandComponent* CommandComponent;
@@ -92,6 +104,8 @@ public:
 protected:
 	void ProcessActiveCommand(float DeltaSeconds);
 	void ProcessAttackCommand(float DeltaSeconds);
+	void EnforceMinimumUnitSpacing();
+	void TryAutoEngage(float DeltaSeconds);
 
 	void SpawnOrReplaceMoveMarker(const FVector& TargetLocation);
 
@@ -105,6 +119,10 @@ protected:
 	bool bHasActiveCommand = false;
 	bool bSelected = false;
 	float AttackCooldownRemaining = 0.0f;
+	float HoverCircleScale = 1.35f;
+	float MinHoverCircleRadius = 120.0f;
+	float AutoEngageScanCooldown = 0.0f;
+	float AutoEngageScanInterval = 0.5f;
 
 	UPROPERTY()
 	ABattleUnit* AttackTarget = nullptr;

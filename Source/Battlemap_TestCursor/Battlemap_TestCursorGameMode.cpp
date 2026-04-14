@@ -41,7 +41,7 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 
 	SpawnTestUnit(FVector(-1200.0f, -600.0f, 80.0f), TEXT("Alpha-1"), true);
 	SpawnTestUnit(FVector(-1200.0f, 600.0f, 80.0f), TEXT("Bravo-2"), true);
-	SpawnTestUnit(FVector(1600.0f, 0.0f, 80.0f), TEXT("Enemy-Tank"), false);
+	SpawnTestUnit(FVector(12000.0f, 0.0f, 80.0f), TEXT("Enemy-Tank"), false);
 
 	if (ABattlemap_TestCursorPlayerController* BattleController = Cast<ABattlemap_TestCursorPlayerController>(World->GetFirstPlayerController()))
 	{
@@ -79,6 +79,8 @@ void ABattlemap_TestCursorGameMode::SpawnTestUnit(const FVector& Location, const
 	Unit->UnitData.Category = bFriendly ? EUnitCategory::Infantry : EUnitCategory::Vehicle;
 	Unit->UnitData.UnitType = bFriendly ? EUnitType::Infantry : EUnitType::Tank;
 	Unit->CurrentHealth = 100.0f;
+	Unit->AttackRange = bFriendly ? 1800.0f : 2200.0f;
+	Unit->DetectionRange = Unit->AttackRange * 2.0f;
 
 	if (Unit->CommsComponent)
 	{

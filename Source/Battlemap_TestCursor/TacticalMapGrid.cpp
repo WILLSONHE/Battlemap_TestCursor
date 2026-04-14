@@ -4,6 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 
 ATacticalMapGrid::ATacticalMapGrid()
 {
@@ -21,6 +22,12 @@ ATacticalMapGrid::ATacticalMapGrid()
 	if (PlaneMesh.Succeeded())
 	{
 		MapMesh->SetStaticMesh(PlaneMesh.Object);
+	}
+
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> WhiteMaterial(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (WhiteMaterial.Succeeded())
+	{
+		MapMesh->SetMaterial(0, WhiteMaterial.Object);
 	}
 
 	ScaleManager = CreateDefaultSubobject<UScaleManagerComponent>(TEXT("ScaleManager"));
@@ -48,7 +55,7 @@ void ATacticalMapGrid::BuildTestGrid(int32 HalfExtentTiles)
 
 	const int32 Dimension = FMath::Max(1, HalfExtentTiles * 2 + 1);
 	const float WorldSize = static_cast<float>(Dimension) * TileSizeMeters / 100.0f;
-	MapMesh->SetWorldScale3D(FVector((WorldSize / 100.0f) * 100.0f, (WorldSize / 100.0f) * 100.0f, 1.0f));
+	MapMesh->SetWorldScale3D(FVector((WorldSize / 100.0f) * 500.0f, (WorldSize / 100.0f) * 500.0f, 1.0f));
 
 	for (int32 X = -HalfExtentTiles; X <= HalfExtentTiles; ++X)
 	{

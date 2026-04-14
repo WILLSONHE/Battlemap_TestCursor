@@ -6,6 +6,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/Texture2D.h"
+#include "EngineUtils.h"
 #include "UObject/ConstructorHelpers.h"
 
 void ABattlemap_TestCursorHUD::DrawHUD()
@@ -47,8 +48,9 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 	Lines.Add(FString::Printf(TEXT("通讯：%s"), *CommsName));
 	Lines.Add(FString::Printf(TEXT("生命：%.0f"), Snapshot.Health));
 	Lines.Add(FString::Printf(TEXT("食物：%.0f  燃油：%.0f"), Snapshot.Food, Snapshot.Fuel));
+	Lines.Add(FString::Printf(TEXT("弹药：%d/%d"), Snapshot.CurrentAmmo, Snapshot.MaxAmmo));
 	Lines.Add(FString::Printf(TEXT("攻击目标：%s"), Snapshot.AttackTargetName.IsEmpty() ? TEXT("无") : *Snapshot.AttackTargetName));
-	Lines.Add(FString::Printf(TEXT("目标血量：%.0f"), Snapshot.AttackTargetHealth));
+	Lines.Add(Snapshot.AttackTargetName.IsEmpty() ? TEXT("目标血量：") : FString::Printf(TEXT("目标血量：%.0f"), Snapshot.AttackTargetHealth));
 	Lines.Add(FString::Printf(TEXT("提示：%s"), Snapshot.LastHint.IsEmpty() ? TEXT("无") : *Snapshot.LastHint));
 	for (const FString& UnitName : Snapshot.SelectedUnitNames)
 	{
@@ -108,6 +110,67 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 			PrevScreen = ScreenPoint;
 			bHasPrev = true;
 		}
+
+		const int32 DetectionSegmentCount = 48;
+		const float DetectionRadius = Unit->DetectionRange;
+		FVector2D PrevDetectionScreen = FVector2D::ZeroVector;
+		bool bHasPrevDetection = false;
+		for (int32 Segment = 0; Segment <= DetectionSegmentCount; ++Segment)
+		{
+			const float Angle = (static_cast<float>(Segment) / static_cast<float>(DetectionSegmentCount)) * 2.0f * PI;
+			const FVector WorldPoint = Unit->GetActorLocation() + FVector(FMath::Cos(Angle) * DetectionRadius, FMath::Sin(Angle) * DetectionRadius, 0.0f);
+			FVector2D ScreenPoint;
+			if (!BattleController->ProjectWorldLocationToScreen(WorldPoint, ScreenPoint, true))
+			{
+				bHasPrevDetection = false;
+				continue;
+			}
+
+			if (bHasPrevDetection)
+			{
+				DrawLine(PrevDetectionScreen.X, PrevDetectionScreen.Y, ScreenPoint.X, ScreenPoint.Y, FLinearColor(1.0f, 1.0f, 0.0f, 0.9f), 2.0f);
+			}
+
+			PrevDetectionScreen = ScreenPoint;
+			bHasPrevDetection = true;
+		}
+	}
+
+	UWorld* World = BattleController->GetWorld();
+	if (World)
+	{
+		for (TActorIterator<ABattleUnit> It(World); It; ++It)
+		{
+			ABattleUnit* Unit = *It;
+			if (!Unit || Unit->bFriendly)
+			{
+				continue;
+			}
+
+			const int32 DetectionSegmentCount = 48;
+			const float DetectionRadius = Unit->DetectionRange;
+			FVector2D PrevDetectionScreen = FVector2D::ZeroVector;
+			bool bHasPrevDetection = false;
+			for (int32 Segment = 0; Segment <= DetectionSegmentCount; ++Segment)
+			{
+				const float Angle = (static_cast<float>(Segment) / static_cast<float>(DetectionSegmentCount)) * 2.0f * PI;
+				const FVector WorldPoint = Unit->GetActorLocation() + FVector(FMath::Cos(Angle) * DetectionRadius, FMath::Sin(Angle) * DetectionRadius, 0.0f);
+				FVector2D ScreenPoint;
+				if (!BattleController->ProjectWorldLocationToScreen(WorldPoint, ScreenPoint, true))
+				{
+					bHasPrevDetection = false;
+					continue;
+				}
+
+				if (bHasPrevDetection)
+				{
+					DrawLine(PrevDetectionScreen.X, PrevDetectionScreen.Y, ScreenPoint.X, ScreenPoint.Y, FLinearColor(1.0f, 1.0f, 0.0f, 0.9f), 2.0f);
+				}
+
+				PrevDetectionScreen = ScreenPoint;
+				bHasPrevDetection = true;
+			}
+		}
 	}
 
 	FHitResult HoverHit;
@@ -116,20 +179,7 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 		ABattleUnit* HoveredUnit = Cast<ABattleUnit>(HoverHit.GetActor());
 		if (HoveredUnit)
 		{
-			float UnitRadius = 120.0f;
-			if (HoveredUnit->UnitMesh)
-			{
-				UnitRadius = FMath::Max(UnitRadius, HoveredUnit->UnitMesh->Bounds.SphereRadius);
-			}
-			else
-			{
-				FVector Origin = FVector::ZeroVector;
-				FVector Extent = FVector::ZeroVector;
-				HoveredUnit->GetActorBounds(true, Origin, Extent);
-				UnitRadius = FMath::Max(UnitRadius, Extent.Size());
-			}
-
-			const float HoverRadius = UnitRadius * 1.35f;
+			const float HoverRadius = HoveredUnit->GetHoverCircleRadius();
 			const int32 HoverSegmentCount = 48;
 			FVector2D PrevScreen = FVector2D::ZeroVector;
 			bool bHasPrev = false;
