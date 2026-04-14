@@ -3,10 +3,12 @@
 #include "BattleDetectionComponent.h"
 #include "BattleCommsComponent.h"
 #include "BattleSupplyComponent.h"
+#include "MoveCommandMarkerActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
 
 ABattleUnit::ABattleUnit()
 {
@@ -33,6 +35,7 @@ ABattleUnit::ABattleUnit()
 	}
 
 	SetActorEnableCollision(true);
+	MoveCommandMarker = nullptr;
 
 	CommandComponent = CreateDefaultSubobject<UBattleCommandComponent>(TEXT("CommandComponent"));
 	DetectionComponent = CreateDefaultSubobject<UBattleDetectionComponent>(TEXT("DetectionComponent"));
@@ -43,6 +46,7 @@ ABattleUnit::ABattleUnit()
 void ABattleUnit::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	AttackCooldownRemaining = FMath::Max(0.0f, AttackCooldownRemaining - DeltaSeconds);
 	ProcessActiveCommand(DeltaSeconds);
 }
 
@@ -68,6 +72,49 @@ void ABattleUnit::SetSelected(bool bInSelected)
 	UnitMesh->SetRenderCustomDepth(bSelected);
 	const FVector Scale = bSelected ? FVector(0.95f, 0.95f, 0.3f) : FVector(0.8f, 0.8f, 0.25f);
 	UnitMesh->SetWorldScale3D(Scale);
+
+	if (MoveCommandMarker)
+	{
+		MoveCommandMarker->SetMarkerVisible(bSelected);
+	}
+}
+
+void ABattleUnit::IssueMoveCommandInterrupt(const FVector& TargetLocation, ECommandPriority Priority)
+{
+	if (CommandComponent)
+	{
+		CommandComponent->RemoveCommandsByType(ECommandType::Move);
+	}
+
+	ActiveCommand.CommandType = ECommandType::Move;
+	ActiveCommand.Priority = Priority;
+	ActiveCommand.TargetLocation = TargetLocation;
+	ActiveCommand.bDirectCommand = true;
+	AttackTarget = nullptr;
+	bHasActiveCommand = true;
+	SpawnOrReplaceMoveMarker(TargetLocation);
+}
+
+void ABattleUnit::IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandPriority Priority)
+{
+	if (!TargetUnit || TargetUnit == this)
+	{
+		return;
+	}
+
+	if (CommandComponent)
+	{
+		CommandComponent->RemoveCommandsByType(ECommandType::Attack);
+		CommandComponent->RemoveCommandsByType(ECommandType::Move);
+	}
+
+	DestroyMoveMarker();
+	AttackTarget = TargetUnit;
+	ActiveCommand.CommandType = ECommandType::Attack;
+	ActiveCommand.Priority = Priority;
+	ActiveCommand.TargetLocation = TargetUnit->GetActorLocation();
+	ActiveCommand.bDirectCommand = true;
+	bHasActiveCommand = true;
 }
 
 bool ABattleUnit::AcquireNextCommand()
@@ -94,6 +141,12 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 
 	if (ActiveCommand.CommandType != ECommandType::Move)
 	{
+		if (ActiveCommand.CommandType == ECommandType::Attack)
+		{
+			ProcessAttackCommand(DeltaSeconds);
+			return;
+		}
+
 		bHasActiveCommand = false;
 		return;
 	}
@@ -104,6 +157,7 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 	if (Distance <= 10.0f)
 	{
 		SetActorLocation(ActiveCommand.TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		DestroyMoveMarker();
 		bHasActiveCommand = false;
 		return;
 	}
@@ -112,10 +166,71 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 	if (Step.Size() >= Distance)
 	{
 		SetActorLocation(ActiveCommand.TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		DestroyMoveMarker();
 		bHasActiveCommand = false;
 	}
 	else
 	{
 		SetActorLocation(CurrentLocation + Step, false, nullptr, ETeleportType::TeleportPhysics);
 	}
+}
+
+void ABattleUnit::ProcessAttackCommand(float DeltaSeconds)
+{
+	if (!AttackTarget || !AttackTarget->IsAlive())
+	{
+		bHasActiveCommand = false;
+		AttackTarget = nullptr;
+		return;
+	}
+
+	const float Distance = FVector::Dist2D(GetActorLocation(), AttackTarget->GetActorLocation());
+	if (Distance > AttackRange)
+	{
+		const FVector Direction = (AttackTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		SetActorLocation(GetActorLocation() + Direction * MoveSpeed * DeltaSeconds, false, nullptr, ETeleportType::TeleportPhysics);
+		return;
+	}
+
+	if (AttackCooldownRemaining > 0.0f)
+	{
+		return;
+	}
+
+	AttackTarget->ApplyDamageValue(AttackDamage);
+	AttackCooldownRemaining = AttackCooldown;
+
+	if (!AttackTarget->IsAlive())
+	{
+		AttackTarget = nullptr;
+		bHasActiveCommand = false;
+	}
+}
+
+void ABattleUnit::SpawnOrReplaceMoveMarker(const FVector& TargetLocation)
+{
+	DestroyMoveMarker();
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	MoveCommandMarker = World->SpawnActor<AMoveCommandMarkerActor>(AMoveCommandMarkerActor::StaticClass(), TargetLocation, FRotator::ZeroRotator);
+	if (MoveCommandMarker)
+	{
+		MoveCommandMarker->SetMarkerVisible(IsSelected());
+	}
+}
+
+void ABattleUnit::DestroyMoveMarker()
+{
+	if (!MoveCommandMarker)
+	{
+		return;
+	}
+
+	MoveCommandMarker->Destroy();
+	MoveCommandMarker = nullptr;
 }

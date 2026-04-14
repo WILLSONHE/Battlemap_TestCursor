@@ -17,6 +17,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
 	bool TryPopNextCommand(FActiveCommand& OutCommand);
 
+	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
+	void RemoveCommandsByType(ECommandType CommandType);
+
 private:
 	UPROPERTY()
 	TArray<FActiveCommand> CommandQueue;

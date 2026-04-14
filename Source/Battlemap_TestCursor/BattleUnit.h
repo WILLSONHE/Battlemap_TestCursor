@@ -11,6 +11,7 @@ class UBattleCommsComponent;
 class UBattleSupplyComponent;
 class USceneComponent;
 class UStaticMeshComponent;
+class AMoveCommandMarkerActor;
 
 UCLASS(Blueprintable)
 class BATTLEMAP_TESTCURSOR_API ABattleUnit : public APawn
@@ -40,6 +41,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle")
 	float MoveSpeed = 1200.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
+	float AttackRange = 1800.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
+	float AttackDamage = 12.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
+	float AttackCooldown = 1.0f;
+
 	UFUNCTION(BlueprintCallable, Category = "Battle")
 	void ApplyDamageValue(float DamageValue);
 
@@ -51,6 +61,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Battle")
 	bool IsSelected() const { return bSelected; }
+
+	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
+	void IssueMoveCommandInterrupt(const FVector& TargetLocation, ECommandPriority Priority = ECommandPriority::High);
+
+	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
+	void IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandPriority Priority = ECommandPriority::High);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Components")
 	UBattleCommandComponent* CommandComponent;
@@ -70,8 +86,16 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Visual")
 	UStaticMeshComponent* UnitMesh;
 
+	UPROPERTY()
+	AMoveCommandMarkerActor* MoveCommandMarker;
+
 protected:
 	void ProcessActiveCommand(float DeltaSeconds);
+	void ProcessAttackCommand(float DeltaSeconds);
+
+	void SpawnOrReplaceMoveMarker(const FVector& TargetLocation);
+
+	void DestroyMoveMarker();
 
 	bool AcquireNextCommand();
 
@@ -80,6 +104,10 @@ protected:
 
 	bool bHasActiveCommand = false;
 	bool bSelected = false;
+	float AttackCooldownRemaining = 0.0f;
+
+	UPROPERTY()
+	ABattleUnit* AttackTarget = nullptr;
 };
 
 UCLASS()

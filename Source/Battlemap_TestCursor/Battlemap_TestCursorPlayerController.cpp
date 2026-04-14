@@ -47,6 +47,8 @@ ABattlemap_TestCursorPlayerController::ABattlemap_TestCursorPlayerController()
 	bHasLastMouseScreenPosition = false;
 	SelectionBoxStart = FVector2D::ZeroVector;
 	SelectionBoxEnd = FVector2D::ZeroVector;
+	RightClickPressScreenPosition = FVector2D::ZeroVector;
+	LastAttackTarget = nullptr;
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> MappingContextAsset(TEXT("/Game/TopDown/Input/IMC_Default.IMC_Default"));
 	if (MappingContextAsset.Succeeded())
@@ -102,12 +104,13 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 	if (bRightMouseHeld)
 	{
 		const FVector2D MouseDelta = CurrentMousePosition - LastMouseScreenPosition;
-		if (!MouseDelta.IsNearlyZero())
+		const float RightDragDistance = FVector2D::Distance(CurrentMousePosition, RightClickPressScreenPosition);
+		if (RightDragDistance >= RightDragThreshold && !MouseDelta.IsNearlyZero())
 		{
 			bHasDraggedSelection = true;
 			if (ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
 			{
-				BattleCharacter->PanCamera(FVector2D(-MouseDelta.X, MouseDelta.Y), 5.0f);
+				BattleCharacter->PanCamera(FVector2D(-MouseDelta.X, MouseDelta.Y), 4.0f);
 			}
 		}
 	}
@@ -271,6 +274,12 @@ void ABattlemap_TestCursorPlayerController::OnRightMousePressed()
 {
 	bRightMouseHeld = true;
 	OnInputStarted();
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+	if (GetMousePosition(MouseX, MouseY))
+	{
+		RightClickPressScreenPosition = FVector2D(MouseX, MouseY);
+	}
 	OnSetDestinationTriggered();
 }
 
@@ -319,9 +328,11 @@ void ABattlemap_TestCursorPlayerController::OnRotateMapTriggered(const FInputAct
 void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 {
 	FHitResult Hit;
+	ABattleUnit* ClickedUnit = nullptr;
 	if (GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, Hit))
 	{
 		CachedDestination = Hit.Location;
+		ClickedUnit = Cast<ABattleUnit>(Hit.GetActor());
 	}
 
 	if (SelectedUnits.Num() == 0)
@@ -330,6 +341,7 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 		return;
 	}
 
+	const bool bAttackCommand = ClickedUnit && !ClickedUnit->bFriendly;
 	int32 IssuedCount = 0;
 	for (ABattleUnit* Unit : SelectedUnits)
 	{
@@ -341,17 +353,29 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 			continue;
 		}
 
-		FActiveCommand MoveCommand;
-		MoveCommand.CommandType = ECommandType::Move;
-		MoveCommand.Priority = ECommandPriority::High;
-		MoveCommand.TargetLocation = CachedDestination;
-		MoveCommand.TargetLocation.Z = Unit->GetActorLocation().Z;
-		MoveCommand.bDirectCommand = true;
-		Unit->CommandComponent->EnqueueCommand(MoveCommand);
+		if (bAttackCommand)
+		{
+			Unit->IssueAttackCommandInterrupt(ClickedUnit, ECommandPriority::High);
+		}
+		else
+		{
+			FVector MoveTarget = CachedDestination;
+			MoveTarget.Z = Unit->GetActorLocation().Z;
+			Unit->IssueMoveCommandInterrupt(MoveTarget, ECommandPriority::High);
+		}
+
 		++IssuedCount;
 	}
 
-	SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount));
+	if (bAttackCommand)
+	{
+		LastAttackTarget = ClickedUnit;
+		SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达攻击命令。"), IssuedCount));
+	}
+	else
+	{
+		SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount));
+	}
 }
 
 void ABattlemap_TestCursorPlayerController::OnToggleCommsTriggered()
@@ -460,6 +484,12 @@ FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot()
 		}
 	}
 
+	if (LastAttackTarget.IsValid())
+	{
+		Snapshot.AttackTargetName = LastAttackTarget->UnitLabel;
+		Snapshot.AttackTargetHealth = LastAttackTarget->CurrentHealth;
+	}
+
 	return Snapshot;
 }
 
@@ -473,8 +503,14 @@ void ABattlemap_TestCursorPlayerController::UpdateSelectionFromCursor()
 
 	if (ABattleUnit* HitUnit = Cast<ABattleUnit>(Hit.GetActor()))
 	{
-		SetSelectedUnit(HitUnit);
-		CachedDestination = HitUnit->GetActorLocation();
+		if (HitUnit->bFriendly)
+		{
+			SetSelectedUnit(HitUnit);
+			CachedDestination = HitUnit->GetActorLocation();
+			return;
+		}
+
+		SetStatusHint(TEXT("敌方单位不可被选中。"));
 		return;
 	}
 
@@ -498,7 +534,7 @@ void ABattlemap_TestCursorPlayerController::UpdateBoxSelection()
 	for (TActorIterator<ABattleUnit> It(World); It; ++It)
 	{
 		ABattleUnit* Unit = *It;
-		if (!Unit)
+		if (!Unit || !Unit->bFriendly)
 		{
 			continue;
 		}

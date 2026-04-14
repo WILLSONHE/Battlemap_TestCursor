@@ -338,6 +338,12 @@ struct FDebugBattleSnapshot
 	FString LastHint;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString AttackTargetName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float AttackTargetHealth = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsBoxSelecting = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

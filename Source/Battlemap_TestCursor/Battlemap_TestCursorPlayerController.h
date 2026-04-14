@@ -105,6 +105,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Battle|Debug")
 	FDebugBattleSnapshot BuildDebugSnapshot() const;
 
+	const TArray<ABattleUnit*>& GetSelectedUnits() const { return SelectedUnits; }
+
 private:
 	void UpdateSelectionFromCursor();
 	void UpdateBoxSelection();
@@ -126,6 +128,8 @@ private:
 	UPROPERTY()
 	TArray<ABattleUnit*> SelectedUnits;
 
+	TWeakObjectPtr<ABattleUnit> LastAttackTarget;
+
 	FString StatusHint;
 	bool bRotateHeld = false;
 	bool bLeftMouseHeld = false;
@@ -138,6 +142,8 @@ private:
 	FVector2D SelectionBoxStart = FVector2D::ZeroVector;
 	FVector2D SelectionBoxEnd = FVector2D::ZeroVector;
 	float SelectionDragThreshold = 8.0f;
+	FVector2D RightClickPressScreenPosition = FVector2D::ZeroVector;
+	float RightDragThreshold = 6.0f;
 };
 
 

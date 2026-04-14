@@ -1,5 +1,6 @@
 #include "Battlemap_TestCursorHUD.h"
 #include "Battlemap_TestCursorPlayerController.h"
+#include "BattleUnit.h"
 #include "BattleTypes.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -46,6 +47,8 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 	Lines.Add(FString::Printf(TEXT("通讯：%s"), *CommsName));
 	Lines.Add(FString::Printf(TEXT("生命：%.0f"), Snapshot.Health));
 	Lines.Add(FString::Printf(TEXT("食物：%.0f  燃油：%.0f"), Snapshot.Food, Snapshot.Fuel));
+	Lines.Add(FString::Printf(TEXT("攻击目标：%s"), Snapshot.AttackTargetName.IsEmpty() ? TEXT("无") : *Snapshot.AttackTargetName));
+	Lines.Add(FString::Printf(TEXT("目标血量：%.0f"), Snapshot.AttackTargetHealth));
 	Lines.Add(FString::Printf(TEXT("提示：%s"), Snapshot.LastHint.IsEmpty() ? TEXT("无") : *Snapshot.LastHint));
 	for (const FString& UnitName : Snapshot.SelectedUnitNames)
 	{
@@ -71,5 +74,85 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 		DrawLine(MinX + Width, MinY, MinX + Width, MinY + Height, SelectionOutlineColor, 1.5f);
 		DrawLine(MinX + Width, MinY + Height, MinX, MinY + Height, SelectionOutlineColor, 1.5f);
 		DrawLine(MinX, MinY + Height, MinX, MinY, SelectionOutlineColor, 1.5f);
+	}
+
+	const TArray<ABattleUnit*>& SelectedUnits = BattleController->GetSelectedUnits();
+	for (ABattleUnit* Unit : SelectedUnits)
+	{
+		if (!Unit)
+		{
+			continue;
+		}
+
+		const int32 SegmentCount = 48;
+		const float Radius = Unit->AttackRange;
+		FVector2D PrevScreen = FVector2D::ZeroVector;
+		bool bHasPrev = false;
+
+		for (int32 Segment = 0; Segment <= SegmentCount; ++Segment)
+		{
+			const float Angle = (static_cast<float>(Segment) / static_cast<float>(SegmentCount)) * 2.0f * PI;
+			const FVector WorldPoint = Unit->GetActorLocation() + FVector(FMath::Cos(Angle) * Radius, FMath::Sin(Angle) * Radius, 0.0f);
+			FVector2D ScreenPoint;
+			if (!BattleController->ProjectWorldLocationToScreen(WorldPoint, ScreenPoint, true))
+			{
+				bHasPrev = false;
+				continue;
+			}
+
+			if (bHasPrev)
+			{
+				DrawLine(PrevScreen.X, PrevScreen.Y, ScreenPoint.X, ScreenPoint.Y, FLinearColor(1.0f, 0.2f, 0.2f, 0.9f), 2.0f);
+			}
+
+			PrevScreen = ScreenPoint;
+			bHasPrev = true;
+		}
+	}
+
+	FHitResult HoverHit;
+	if (BattleController->GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, HoverHit))
+	{
+		ABattleUnit* HoveredUnit = Cast<ABattleUnit>(HoverHit.GetActor());
+		if (HoveredUnit)
+		{
+			float UnitRadius = 120.0f;
+			if (HoveredUnit->UnitMesh)
+			{
+				UnitRadius = FMath::Max(UnitRadius, HoveredUnit->UnitMesh->Bounds.SphereRadius);
+			}
+			else
+			{
+				FVector Origin = FVector::ZeroVector;
+				FVector Extent = FVector::ZeroVector;
+				HoveredUnit->GetActorBounds(true, Origin, Extent);
+				UnitRadius = FMath::Max(UnitRadius, Extent.Size());
+			}
+
+			const float HoverRadius = UnitRadius * 1.35f;
+			const int32 HoverSegmentCount = 48;
+			FVector2D PrevScreen = FVector2D::ZeroVector;
+			bool bHasPrev = false;
+
+			for (int32 Segment = 0; Segment <= HoverSegmentCount; ++Segment)
+			{
+				const float Angle = (static_cast<float>(Segment) / static_cast<float>(HoverSegmentCount)) * 2.0f * PI;
+				const FVector WorldPoint = HoveredUnit->GetActorLocation() + FVector(FMath::Cos(Angle) * HoverRadius, FMath::Sin(Angle) * HoverRadius, 0.0f);
+				FVector2D ScreenPoint;
+				if (!BattleController->ProjectWorldLocationToScreen(WorldPoint, ScreenPoint, true))
+				{
+					bHasPrev = false;
+					continue;
+				}
+
+				if (bHasPrev)
+				{
+					DrawLine(PrevScreen.X, PrevScreen.Y, ScreenPoint.X, ScreenPoint.Y, FLinearColor::White, 5.0f);
+				}
+
+				PrevScreen = ScreenPoint;
+				bHasPrev = true;
+			}
+		}
 	}
 }

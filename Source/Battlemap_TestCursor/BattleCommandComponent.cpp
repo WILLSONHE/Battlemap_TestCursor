@@ -25,3 +25,11 @@ bool UBattleCommandComponent::TryPopNextCommand(FActiveCommand& OutCommand)
 	CommandQueue.RemoveAt(0);
 	return true;
 }
+
+void UBattleCommandComponent::RemoveCommandsByType(ECommandType CommandType)
+{
+	CommandQueue.RemoveAll([CommandType](const FActiveCommand& Command)
+	{
+		return Command.CommandType == CommandType;
+	});
+}
