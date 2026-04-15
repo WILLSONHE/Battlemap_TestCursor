@@ -22,8 +22,18 @@ enum class ETerrainType : uint8
 	DeepWater,
 	Airfield,
 	Port,
+	Bridge,
 	Bunker,
 	Rubble
+};
+
+UENUM(BlueprintType)
+enum class EUnitMobilityType : uint8
+{
+	Land,
+	Amphibious,
+	Naval,
+	Air
 };
 
 UENUM(BlueprintType)
@@ -170,6 +180,57 @@ struct FTileData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FTileTerrainData Terrain;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float ElevationMeters = 0.0f;
+
+};
+
+USTRUCT(BlueprintType)
+struct FTerrainTraversalRule
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float MoveCost = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float SpeedMultiplier = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bCanTraverse = true;
+};
+
+USTRUCT(BlueprintType)
+struct FTerrainCellState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FIntPoint TerrainCellId = FIntPoint::ZeroValue;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	ETerrainType TerrainType = ETerrainType::Plains;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float ElevationMeters = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float WaterDepthMeters = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsArtificialFacility = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float FacilityHP = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bDestroyed = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float DefenseModifier = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TMap<EUnitMobilityType, FTerrainTraversalRule> TraversalRules;
 };
 
 USTRUCT(BlueprintType)

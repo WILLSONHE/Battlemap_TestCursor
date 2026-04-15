@@ -485,6 +485,25 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 	}
 
 	const bool bAttackCommand = ClickedUnit && !ClickedUnit->bFriendly;
+	const bool bTryDamageFacility = !bAttackCommand && TacticalMapGrid && IsInputKeyDown(EKeys::LeftControl);
+	if (bTryDamageFacility)
+	{
+		float TotalDamage = 0.0f;
+		for (ABattleUnit* Unit : SelectedUnits)
+		{
+			if (Unit)
+			{
+				TotalDamage += FMath::Max(0.0f, Unit->AttackDamage);
+			}
+		}
+
+		if (TacticalMapGrid->ApplyFacilityDamage(CachedDestination.X, CachedDestination.Y, TotalDamage))
+		{
+			SetStatusHint(FString::Printf(TEXT("已对设施造成 %.0f 点伤害。"), TotalDamage));
+			return;
+		}
+	}
+
 	int32 IssuedCount = 0;
 	FVector2D FormationForward = FVector2D::ZeroVector;
 	FVector FormationOrigin = CachedDestination;

@@ -137,6 +137,7 @@ public:
 	FDebugBattleSnapshot BuildDebugSnapshot() const;
 
 	const TArray<ABattleUnit*>& GetSelectedUnits() const { return SelectedUnits; }
+	ATacticalMapGrid* GetTacticalMapGrid() const { return TacticalMapGrid; }
 
 private:
 	void UpdateFogOfWar(float DeltaTime);

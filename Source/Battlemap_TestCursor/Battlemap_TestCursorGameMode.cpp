@@ -37,18 +37,38 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 	if (SpawnedMapGrid)
 	{
 		SpawnedMapGrid->BuildTestGrid(TestGridHalfExtent);
+		SpawnedMapGrid->InitializeTerrainFromPipelineOutputs();
 	}
 
-	SpawnTestUnit(FVector(-1200.0f, -600.0f, 80.0f), TEXT("Alpha-1"), true);
-	SpawnTestUnit(FVector(-1200.0f, 600.0f, 80.0f), TEXT("Bravo-2"), true);
-	SpawnTestUnit(FVector(12000.0f, 0.0f, 80.0f), TEXT("Enemy-Tank"), false);
+	FVector FriendlyA(-1200.0f, -600.0f, 80.0f);
+	FVector FriendlyB(-1200.0f, 600.0f, 80.0f);
+	FVector Enemy(1200.0f, 0.0f, 80.0f);
+	if (SpawnedMapGrid)
+	{
+		const float UnitBaseZ = SpawnedMapGrid->GetActorLocation().Z + 20.0f;
+		FriendlyA.Z = UnitBaseZ;
+		FriendlyB.Z = UnitBaseZ;
+		Enemy.Z = UnitBaseZ;
+	}
+
+	SpawnTestUnit(FriendlyA, TEXT("Alpha-1"), true);
+	SpawnTestUnit(FriendlyB, TEXT("Bravo-2"), true);
+	SpawnTestUnit(Enemy, TEXT("Enemy-Tank"), false);
 
 	if (ABattlemap_TestCursorPlayerController* BattleController = Cast<ABattlemap_TestCursorPlayerController>(World->GetFirstPlayerController()))
 	{
 		BattleController->SetTacticalMapGrid(SpawnedMapGrid);
-		if (SpawnedUnits.Num() > 0)
+		ABattleUnit* InitialSelectedUnit = SpawnedUnits.Num() > 0 ? SpawnedUnits[0] : nullptr;
+		BattleController->SetSelectedUnit(InitialSelectedUnit);
+
+		if (APawn* PlayerPawn = BattleController->GetPawn())
 		{
-			BattleController->SetSelectedUnit(SpawnedUnits[0]);
+			FVector CameraLocation = InitialSelectedUnit ? InitialSelectedUnit->GetActorLocation() : FVector::ZeroVector;
+			if (SpawnedMapGrid)
+			{
+				CameraLocation.Z = SpawnedMapGrid->GetHeightAtWorldXY(CameraLocation.X, CameraLocation.Y) + 1500.0f;
+			}
+			PlayerPawn->SetActorLocation(CameraLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		}
 	}
 }
@@ -87,6 +107,8 @@ void ABattlemap_TestCursorGameMode::SpawnTestUnit(const FVector& Location, const
 	{
 		Unit->DetectionRange = 150.0f;
 	}
+
+	Unit->MobilityType = bFriendly ? EUnitMobilityType::Land : EUnitMobilityType::Land;
 
 	if (Unit->CommsComponent)
 	{

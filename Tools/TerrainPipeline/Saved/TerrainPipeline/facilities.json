@@ -1,0 +1,301 @@
+{
+  "facilities": [
+    {
+      "x": 0,
+      "y": 0,
+      "type": "bridge",
+      "hp": 150.0
+    },
+    {
+      "x": -39,
+      "y": -39,
+      "type": "airfield",
+      "hp": 180.0
+    },
+    {
+      "x": 32,
+      "y": -19,
+      "type": "urban",
+      "hp": 240.0
+    },
+    {
+      "x": 23,
+      "y": 28,
+      "type": "bunker",
+      "hp": 300.0
+    },
+    {
+      "x": -46,
+      "y": 34,
+      "type": "port",
+      "hp": 200.0
+    },
+    {
+      "x": -64,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": -54,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": -44,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": -34,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": -24,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": -14,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": -4,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": 6,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": 16,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": 26,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": 36,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": 46,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": 56,
+      "y": 8,
+      "type": "road",
+      "hp": 80.0
+    },
+    {
+      "x": 0,
+      "y": -64,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": -54,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": -44,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": -34,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": -24,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": -14,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": -4,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": 6,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": 16,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": 26,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": 36,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": 46,
+      "type": "railway",
+      "hp": 100.0
+    },
+    {
+      "x": 0,
+      "y": 56,
+      "type": "railway",
+      "hp": 100.0
+    }
+  ],
+  "terrain_palette": {
+    "Plains": [
+      255,
+      255,
+      255
+    ],
+    "Forest": [
+      0,
+      128,
+      0
+    ],
+    "Hills": [
+      128,
+      96,
+      64
+    ],
+    "Mountains": [
+      100,
+      100,
+      100
+    ],
+    "Urban": [
+      180,
+      180,
+      180
+    ],
+    "River": [
+      80,
+      170,
+      220
+    ],
+    "Swamp": [
+      70,
+      120,
+      70
+    ],
+    "Desert": [
+      236,
+      217,
+      130
+    ],
+    "Beach": [
+      242,
+      228,
+      170
+    ],
+    "Road": [
+      130,
+      100,
+      60
+    ],
+    "Railway": [
+      50,
+      50,
+      50
+    ],
+    "OpenWater": [
+      20,
+      70,
+      170
+    ],
+    "ShallowWater": [
+      40,
+      130,
+      210
+    ],
+    "DeepWater": [
+      0,
+      0,
+      0
+    ],
+    "Airfield": [
+      120,
+      120,
+      140
+    ],
+    "Port": [
+      20,
+      90,
+      120
+    ],
+    "Bridge": [
+      160,
+      130,
+      90
+    ],
+    "Bunker": [
+      90,
+      70,
+      50
+    ],
+    "Rubble": [
+      120,
+      80,
+      80
+    ]
+  },
+  "runtime_profile": {
+    "target_mode": "flat",
+    "tile_size_meters": 10.0,
+    "elevation_scale_meters": 300.0,
+    "max_neighbor_delta_meters": 5.0,
+    "section_size_quads": 63,
+    "sections_per_component": 2,
+    "component_count_x": 2,
+    "component_count_y": 2,
+    "overall_resolution_x": 253,
+    "overall_resolution_y": 253,
+    "heightmap_resolution_x": 129,
+    "heightmap_resolution_y": 129
+  }
+}

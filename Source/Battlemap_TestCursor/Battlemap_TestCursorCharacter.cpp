@@ -10,6 +10,29 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Materials/Material.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "TacticalMapGrid.h"
+
+namespace
+{
+	static float ResolveTerrainReferenceZ(const UWorld* World, const FVector& WorldLocation, float FallbackZ)
+	{
+		if (!World)
+		{
+			return FallbackZ;
+		}
+
+		for (TActorIterator<ATacticalMapGrid> It(World); It; ++It)
+		{
+			if (const ATacticalMapGrid* Grid = *It)
+			{
+				return Grid->GetHeightAtWorldXY(WorldLocation.X, WorldLocation.Y);
+			}
+		}
+
+		return FallbackZ;
+	}
+}
 
 ABattlemap_TestCursorCharacter::ABattlemap_TestCursorCharacter()
 {
@@ -56,7 +79,10 @@ void ABattlemap_TestCursorCharacter::BeginPlay()
 		return;
 	}
 
+	// Post-process overrides disabled to avoid unintended darkening.
+
 	const float ClampedDefaultDistance = FMath::Clamp(DefaultVerticalDistanceToPlane, MinVerticalDistanceToPlane, MaxVerticalDistanceToPlane);
+	ZoomReferencePlaneZ = ResolveTerrainReferenceZ(GetWorld(), GetActorLocation(), ZoomReferencePlaneZ);
 	const float CurrentVerticalDistance = TopDownCameraComponent->GetComponentLocation().Z - ZoomReferencePlaneZ;
 	const float ZOffset = ClampedDefaultDistance - CurrentVerticalDistance;
 	if (!FMath::IsNearlyZero(ZOffset))
@@ -77,6 +103,7 @@ void ABattlemap_TestCursorCharacter::AdjustCameraZoom(float Delta)
 		return;
 	}
 
+	ZoomReferencePlaneZ = ResolveTerrainReferenceZ(GetWorld(), GetActorLocation(), ZoomReferencePlaneZ);
 	const float CurrentVerticalDistance = TopDownCameraComponent->GetComponentLocation().Z - ZoomReferencePlaneZ;
 	const float NewVerticalDistance = FMath::Clamp(CurrentVerticalDistance + Delta, MinVerticalDistanceToPlane, MaxVerticalDistanceToPlane);
 	const float ZOffset = NewVerticalDistance - CurrentVerticalDistance;
@@ -173,5 +200,6 @@ float ABattlemap_TestCursorCharacter::GetVerticalDistanceToReferencePlane() cons
 		return 0.0f;
 	}
 
-	return FMath::Abs(TopDownCameraComponent->GetComponentLocation().Z - ZoomReferencePlaneZ);
+	const float DynamicReferenceZ = ResolveTerrainReferenceZ(GetWorld(), GetActorLocation(), ZoomReferencePlaneZ);
+	return FMath::Abs(TopDownCameraComponent->GetComponentLocation().Z - DynamicReferenceZ);
 }

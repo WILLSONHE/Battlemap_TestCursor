@@ -12,6 +12,7 @@ class UBattleSupplyComponent;
 class USceneComponent;
 class UStaticMeshComponent;
 class AMoveCommandMarkerActor;
+class ATacticalMapGrid;
 
 UCLASS(Blueprintable)
 class BATTLEMAP_TESTCURSOR_API ABattleUnit : public APawn
@@ -40,6 +41,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle")
 	float MoveSpeed = 1200.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Movement")
+	EUnitMobilityType MobilityType = EUnitMobilityType::Land;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Combat")
 	float AttackRange = 1800.0f;
@@ -121,6 +125,10 @@ protected:
 	void ProcessAttackCommand(float DeltaSeconds);
 	void EnforceMinimumUnitSpacing();
 	void TryAutoEngage(float DeltaSeconds);
+	ATacticalMapGrid* ResolveTacticalMapGrid() const;
+	bool TryGetTraversalRuleAt(const FVector& WorldLocation, FTerrainTraversalRule& OutRule) const;
+	bool IsTraversableAt(const FVector& WorldLocation) const;
+	float GetSpeedMultiplierAt(const FVector& WorldLocation) const;
 
 	void SpawnOrReplaceMoveMarker(const FVector& TargetLocation);
 
@@ -149,6 +157,8 @@ protected:
 
 	UPROPERTY()
 	ABattleUnit* AttackTarget = nullptr;
+
+	mutable TWeakObjectPtr<ATacticalMapGrid> CachedMapGrid;
 };
 
 UCLASS()

@@ -10,6 +10,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "TacticalMapGrid.h"
 
 ABattleUnit::ABattleUnit()
 {
@@ -27,6 +28,9 @@ ABattleUnit::ABattleUnit()
 	UnitMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	UnitMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	UnitMesh->SetMobility(EComponentMobility::Movable);
+	UnitMesh->SetCastShadow(false);
+	UnitMesh->bCastDynamicShadow = false;
+	UnitMesh->bCastStaticShadow = false;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeMesh.Succeeded())
@@ -162,6 +166,74 @@ void ABattleUnit::IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandP
 	LastCombatEvent = FString::Printf(TEXT("%s 锁定目标 %s。"), *UnitLabel, *TargetUnit->UnitLabel);
 }
 
+ATacticalMapGrid* ABattleUnit::ResolveTacticalMapGrid() const
+{
+	if (CachedMapGrid.IsValid())
+	{
+		return CachedMapGrid.Get();
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	for (TActorIterator<ATacticalMapGrid> It(World); It; ++It)
+	{
+		ATacticalMapGrid* Grid = *It;
+		if (Grid)
+		{
+			CachedMapGrid = Grid;
+			return Grid;
+		}
+	}
+
+	return nullptr;
+}
+
+bool ABattleUnit::TryGetTraversalRuleAt(const FVector& WorldLocation, FTerrainTraversalRule& OutRule) const
+{
+	ATacticalMapGrid* Grid = ResolveTacticalMapGrid();
+	if (!Grid)
+	{
+		OutRule = FTerrainTraversalRule();
+		return false;
+	}
+
+	FTerrainCellState Cell;
+	if (!Grid->GetCellStateAtWorldXY(WorldLocation.X, WorldLocation.Y, Cell))
+	{
+		OutRule = FTerrainTraversalRule();
+		return false;
+	}
+
+	if (const FTerrainTraversalRule* Rule = Cell.TraversalRules.Find(MobilityType))
+	{
+		OutRule = *Rule;
+		return true;
+	}
+
+	OutRule = FTerrainTraversalRule();
+	return false;
+}
+
+bool ABattleUnit::IsTraversableAt(const FVector& WorldLocation) const
+{
+	FTerrainTraversalRule Rule;
+	return !TryGetTraversalRuleAt(WorldLocation, Rule) || Rule.bCanTraverse;
+}
+
+float ABattleUnit::GetSpeedMultiplierAt(const FVector& WorldLocation) const
+{
+	FTerrainTraversalRule Rule;
+	if (TryGetTraversalRuleAt(WorldLocation, Rule))
+	{
+		return FMath::Max(0.1f, Rule.SpeedMultiplier);
+	}
+	return 1.0f;
+}
+
 float ABattleUnit::GetHoverCircleRadius() const
 {
 	float UnitRadius = MinHoverCircleRadius;
@@ -233,7 +305,17 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 		return;
 	}
 
-	const FVector Step = Delta.GetSafeNormal() * MoveSpeed * DeltaSeconds;
+	const FVector CandidateStep = Delta.GetSafeNormal() * (MoveSpeed * GetSpeedMultiplierAt(CurrentLocation)) * DeltaSeconds;
+	const FVector CandidateLocation = CurrentLocation + CandidateStep;
+	if (!IsTraversableAt(CandidateLocation))
+	{
+		bHasActiveCommand = false;
+		RuntimeState = EUnitRuntimeState::Idle;
+		LastCombatEvent = FString::Printf(TEXT("%s 当前地形不可通行，机动命令中止。"), *UnitLabel);
+		return;
+	}
+
+	const FVector Step = CandidateStep;
 	if (Step.Size() >= Distance)
 	{
 		SetActorLocation(ActiveCommand.TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
@@ -281,7 +363,15 @@ void ABattleUnit::ProcessAttackCommand(float DeltaSeconds)
 	if (Distance > AttackRange)
 	{
 		const FVector Direction = (AttackTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
-		SetActorLocation(GetActorLocation() + Direction * MoveSpeed * DeltaSeconds, false, nullptr, ETeleportType::TeleportPhysics);
+		const FVector CandidateLocation = GetActorLocation() + Direction * (MoveSpeed * GetSpeedMultiplierAt(GetActorLocation())) * DeltaSeconds;
+		if (!IsTraversableAt(CandidateLocation))
+		{
+			LastCombatEvent = FString::Printf(TEXT("%s 无法穿越当前地形，追击中止。"), *UnitLabel);
+			bHasActiveCommand = false;
+			RuntimeState = EUnitRuntimeState::Idle;
+			return;
+		}
+		SetActorLocation(CandidateLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		EnforceMinimumUnitSpacing();
 		return;
 	}
@@ -310,6 +400,10 @@ void ABattleUnit::ProcessAttackCommand(float DeltaSeconds)
 	if (!AttackTarget->IsAlive())
 	{
 		LastCombatEvent = FString::Printf(TEXT("%s 消灭目标。"), *UnitLabel);
+		if (ATacticalMapGrid* Grid = ResolveTacticalMapGrid())
+		{
+			Grid->ApplyFacilityDamage(AttackTarget->GetActorLocation().X, AttackTarget->GetActorLocation().Y, AttackDamage);
+		}
 		AttackTarget = nullptr;
 		bHasActiveCommand = false;
 		RuntimeState = EUnitRuntimeState::Idle;
