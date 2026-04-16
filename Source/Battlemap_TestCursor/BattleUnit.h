@@ -127,6 +127,9 @@ protected:
 	void TryAutoEngage(float DeltaSeconds);
 	ATacticalMapGrid* ResolveTacticalMapGrid() const;
 	bool TryGetTraversalRuleAt(const FVector& WorldLocation, FTerrainTraversalRule& OutRule) const;
+	bool IsWaterTerrainType(ETerrainType TerrainType) const;
+	bool IsInfrastructureTerrainType(ETerrainType TerrainType) const;
+	bool CanLandTraverseWaterCell(const FVector& WorldLocation) const;
 	bool IsTraversableAt(const FVector& WorldLocation) const;
 	float GetSpeedMultiplierAt(const FVector& WorldLocation) const;
 

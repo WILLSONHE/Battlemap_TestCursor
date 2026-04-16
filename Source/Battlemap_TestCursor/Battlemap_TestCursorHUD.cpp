@@ -9,100 +9,7 @@
 #include "Engine/HitResult.h"
 #include "Engine/Texture2D.h"
 #include "EngineUtils.h"
-#include "GameFramework/Pawn.h"
 #include "UObject/ConstructorHelpers.h"
-
-void ABattlemap_TestCursorHUD::RebuildFallbackContourCache(ATacticalMapGrid* TacticalMapGrid)
-{
-	CachedFallbackContourSegments.Reset();
-	if (!TacticalMapGrid)
-	{
-		return;
-	}
-
-	const int32 MinCell = -TacticalMapGrid->GridHalfExtentTiles;
-	const int32 MaxCell = TacticalMapGrid->GridHalfExtentTiles;
-	const float Interval = FMath::Max(0.1f, TacticalMapGrid->ContourIntervalMeters);
-
-	auto ElevAt = [TacticalMapGrid](const FIntPoint& CellId, float& OutElevation) -> bool
-	{
-		FTerrainCellState Cell;
-		if (!TacticalMapGrid->TryGetCellStateById(CellId, Cell))
-		{
-			return false;
-		}
-		OutElevation = Cell.ElevationMeters;
-		return true;
-	};
-
-	CachedFallbackContourSegments.Reserve((MaxCell - MinCell) * (MaxCell - MinCell));
-	for (int32 Y = MinCell; Y < MaxCell; ++Y)
-	{
-		for (int32 X = MinCell; X < MaxCell; ++X)
-		{
-			const FIntPoint C00(X, Y);
-			const FIntPoint C10(X + 1, Y);
-			const FIntPoint C01(X, Y + 1);
-			const FIntPoint C11(X + 1, Y + 1);
-
-			float H00 = 0.0f;
-			float H10 = 0.0f;
-			float H01 = 0.0f;
-			float H11 = 0.0f;
-			if (!ElevAt(C00, H00) || !ElevAt(C10, H10) || !ElevAt(C01, H01) || !ElevAt(C11, H11))
-			{
-				continue;
-			}
-
-			const float MinH = FMath::Min(FMath::Min(H00, H10), FMath::Min(H01, H11));
-			const float MaxH = FMath::Max(FMath::Max(H00, H10), FMath::Max(H01, H11));
-			const int32 L0 = FMath::FloorToInt(MinH / Interval);
-			const int32 L1 = FMath::FloorToInt(MaxH / Interval);
-			if (L0 == L1)
-			{
-				continue;
-			}
-
-			const FVector P00 = TacticalMapGrid->CellToWorldCenter(C00);
-			const FVector P10 = TacticalMapGrid->CellToWorldCenter(C10);
-			const FVector P01 = TacticalMapGrid->CellToWorldCenter(C01);
-			const FVector P11 = TacticalMapGrid->CellToWorldCenter(C11);
-
-			for (int32 Level = L0; Level <= L1; ++Level)
-			{
-				const float IsoH = static_cast<float>(Level) * Interval;
-				TArray<FVector> CrossPoints;
-				CrossPoints.Reserve(4);
-
-				auto TryEdge = [&](const FVector& A, const FVector& B, float HA, float HB)
-				{
-					const bool bCross = (HA <= IsoH && HB > IsoH) || (HA > IsoH && HB <= IsoH);
-					if (!bCross || FMath::IsNearlyEqual(HA, HB))
-					{
-						return;
-					}
-					const float T = (IsoH - HA) / (HB - HA);
-					CrossPoints.Add(FMath::Lerp(A, B, FMath::Clamp(T, 0.0f, 1.0f)) + FVector(0.0f, 0.0f, TacticalMapGrid->ContourDepthOffset));
-				};
-
-				TryEdge(P00, P10, H00, H10);
-				TryEdge(P10, P11, H10, H11);
-				TryEdge(P11, P01, H11, H01);
-				TryEdge(P01, P00, H01, H00);
-
-				if (CrossPoints.Num() == 2)
-				{
-					CachedFallbackContourSegments.Add(TPair<FVector, FVector>(CrossPoints[0], CrossPoints[1]));
-				}
-				else if (CrossPoints.Num() == 4)
-				{
-					CachedFallbackContourSegments.Add(TPair<FVector, FVector>(CrossPoints[0], CrossPoints[1]));
-					CachedFallbackContourSegments.Add(TPair<FVector, FVector>(CrossPoints[2], CrossPoints[3]));
-				}
-			}
-		}
-	}
-}
 
 void ABattlemap_TestCursorHUD::DrawHUD()
 {
@@ -167,8 +74,6 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 			TacticalMapGrid->IsContourMaterialConfigured() ? TEXT("已配置") : TEXT("未配置")));
 		Lines.Add(FString::Printf(TEXT("材质输入链：%s"),
 			TacticalMapGrid->bRuntimeTextureInputReady ? TEXT("Height/Terrain 纹理已喂入") : TEXT("未就绪")));
-		Lines.Add(FString::Printf(TEXT("HUD后备等高线：%s"),
-			TacticalMapGrid->bEnableHudContourFallback ? TEXT("开启") : TEXT("关闭(推荐)")));
 		Lines.Add(FString::Printf(TEXT("高度图分辨率：%d x %d"),
 			TacticalMapGrid->LoadedHeightmapWidth,
 			TacticalMapGrid->LoadedHeightmapHeight));
@@ -198,6 +103,7 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 					*TerrainName,
 					CellState.ElevationMeters,
 					CellState.WaterDepthMeters));
+				Lines.Add(FString::Printf(TEXT("坡度(最大邻格变化率)：%.3f"), CellState.SlopeToMaxNeighbor));
 				if (CellState.bIsArtificialFacility)
 				{
 					Lines.Add(FString::Printf(TEXT("设施状态：HP %.1f  Destroyed %s"),
@@ -219,6 +125,35 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 					}
 				}
 				Lines.Add(FString::Printf(TEXT("坡度诊断：邻格最大高差 %.2f m"), MaxNeighborDeltaMeters));
+
+				// Mapping diagnostics: World -> Cell -> PNG pixel -> UV
+				const int32 Width = TacticalMapGrid->LoadedHeightmapWidth;
+				const int32 Height = TacticalMapGrid->LoadedHeightmapHeight;
+				if (Width > 0 && Height > 0)
+				{
+					const int32 HalfX = Width / 2;
+					const int32 HalfY = Height / 2;
+					const int32 PixelX = CellState.TerrainCellId.X + HalfX;
+					const int32 PixelY = CellState.TerrainCellId.Y + HalfY;
+					const bool bPixelInRange = (PixelX >= 0 && PixelX < Width && PixelY >= 0 && PixelY < Height);
+
+					const float UFromPixel = bPixelInRange ? (static_cast<float>(PixelX) + 0.5f) / static_cast<float>(Width) : -1.0f;
+					const float VFromPixel = bPixelInRange ? (static_cast<float>(PixelY) + 0.5f) / static_cast<float>(Height) : -1.0f;
+
+					const FVector Local = TacticalMapGrid->GetActorTransform().InverseTransformPosition(TerrainHit.Location);
+					const float TileSizeUU = TacticalMapGrid->GetTileSizeUU();
+					const float CellXFromWorld = Local.X / TileSizeUU;
+					const float CellYFromWorld = Local.Y / TileSizeUU;
+					const float UFromWorld = (CellXFromWorld + static_cast<float>(HalfX) + 0.5f) / static_cast<float>(Width);
+					const float VFromWorld = (CellYFromWorld + static_cast<float>(HalfY) + 0.5f) / static_cast<float>(Height);
+
+					Lines.Add(FString::Printf(TEXT("映射诊断: Cell->Pixel=(%d,%d)  InRange=%s"),
+						PixelX, PixelY, bPixelInRange ? TEXT("Yes") : TEXT("No")));
+					Lines.Add(FString::Printf(TEXT("映射诊断: UV(Pixel)=%.4f, %.4f  UV(World)=%.4f, %.4f"),
+						UFromPixel, VFromPixel, UFromWorld, VFromWorld));
+					Lines.Add(FString::Printf(TEXT("映射诊断: dUV=%.4f, %.4f  LocalXY=(%.1f, %.1f) UU"),
+						UFromWorld - UFromPixel, VFromWorld - VFromPixel, Local.X, Local.Y));
+				}
 			}
 		}
 	}
@@ -310,50 +245,6 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 	UWorld* World = BattleController->GetWorld();
 	if (World)
 	{
-		ATacticalMapGrid* TacticalMapGrid = BattleController->GetTacticalMapGrid();
-		if (TacticalMapGrid && TacticalMapGrid->bEnableHudContourFallback && !TacticalMapGrid->IsContourMaterialConfigured())
-		{
-			const bool bNeedRebuild =
-				(CachedContourMap.Get() != TacticalMapGrid)
-				|| !FMath::IsNearlyEqual(CachedContourInterval, TacticalMapGrid->ContourIntervalMeters)
-				|| (CachedGridHalfExtent != TacticalMapGrid->GridHalfExtentTiles)
-				|| !FMath::IsNearlyEqual(CachedContourDepthOffset, TacticalMapGrid->ContourDepthOffset);
-
-			if (bNeedRebuild)
-			{
-				CachedContourMap = TacticalMapGrid;
-				CachedContourInterval = TacticalMapGrid->ContourIntervalMeters;
-				CachedGridHalfExtent = TacticalMapGrid->GridHalfExtentTiles;
-				CachedContourDepthOffset = TacticalMapGrid->ContourDepthOffset;
-				RebuildFallbackContourCache(TacticalMapGrid);
-			}
-
-			const float ContourThickness = FMath::Clamp(TacticalMapGrid->ContourLineWidth, 1.0f, 3.0f);
-			const float TileSizeUU = TacticalMapGrid->GetTileSizeUU();
-			for (const TPair<FVector, FVector>& Segment : CachedFallbackContourSegments)
-			{
-				FVector2D ScreenA;
-				FVector2D ScreenB;
-				if (!BattleController->ProjectWorldLocationToScreen(Segment.Key, ScreenA, true)
-					|| !BattleController->ProjectWorldLocationToScreen(Segment.Value, ScreenB, true))
-				{
-					continue;
-				}
-				DrawLine(ScreenA.X, ScreenA.Y, ScreenB.X, ScreenB.Y, FLinearColor(0.0f, 0.0f, 0.0f, 0.95f), ContourThickness);
-			}
-
-			// Draw a local axis hint in fallback mode.
-			const FVector AxisOrigin = TacticalMapGrid->CellToWorldCenter(FIntPoint::ZeroValue) + FVector(0.0f, 0.0f, TacticalMapGrid->ContourDepthOffset + 2.0f);
-			FVector2D AxisO, AxisX, AxisY;
-			if (BattleController->ProjectWorldLocationToScreen(AxisOrigin, AxisO, true)
-				&& BattleController->ProjectWorldLocationToScreen(AxisOrigin + FVector(TileSizeUU * 2.0f, 0.0f, 0.0f), AxisX, true)
-				&& BattleController->ProjectWorldLocationToScreen(AxisOrigin + FVector(0.0f, TileSizeUU * 2.0f, 0.0f), AxisY, true))
-			{
-				DrawLine(AxisO.X, AxisO.Y, AxisX.X, AxisX.Y, FLinearColor::Red, 2.0f);
-				DrawLine(AxisO.X, AxisO.Y, AxisY.X, AxisY.Y, FLinearColor::Green, 2.0f);
-			}
-		}
-
 		for (TActorIterator<ABattleUnit> It(World); It; ++It)
 		{
 			ABattleUnit* Unit = *It;

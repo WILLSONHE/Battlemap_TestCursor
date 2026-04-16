@@ -179,6 +179,10 @@ def paint_linear_feature(terrain: np.ndarray, points: List[Tuple[int, int]], val
                     terrain[yy, xx] = value
 
 
+def is_water_terrain_name(name: str) -> bool:
+    return name in {"River", "Swamp", "ShallowWater", "OpenWater", "DeepWater"}
+
+
 def make_features(terrain: np.ndarray, height01: np.ndarray, seed: int) -> List[FacilityRecord]:
     random.seed(seed)
     size = terrain.shape[0]
@@ -187,12 +191,22 @@ def make_features(terrain: np.ndarray, height01: np.ndarray, seed: int) -> List[
     # River path
     river_points = [(0, size // 3), (size // 4, size // 2), (size // 2, size // 2 - 10), (size - 1, size // 2 + 6)]
     paint_linear_feature(terrain, river_points, "River", thickness=2)
+    # Snapshot right after water painting; road->bridge conversion references this.
+    terrain_before_roads = terrain.copy()
 
     # Road and railway
     road_points = [(0, size // 2), (size - 1, size // 2)]
     rail_points = [(size // 2, 0), (size // 2, size - 1)]
-    paint_linear_feature(terrain, road_points, "Road", thickness=1)
-    paint_linear_feature(terrain, rail_points, "Railway", thickness=1)
+    # Width limit: no more than 2 cells => use single-cell centerline.
+    paint_linear_feature(terrain, road_points, "Road", thickness=0)
+    # Railway draws after road so crossing keeps railway color/type.
+    paint_linear_feature(terrain, rail_points, "Railway", thickness=0)
+
+    # Road on water must be bridge.
+    for y in range(size):
+        for x in range(size):
+            if terrain[y, x] == "Road" and is_water_terrain_name(str(terrain_before_roads[y, x])):
+                terrain[y, x] = "Bridge"
 
     # Bridge at crossing
     bx, by = size // 2, size // 2
@@ -212,9 +226,17 @@ def make_features(terrain: np.ndarray, height01: np.ndarray, seed: int) -> List[
 
     # Sprinkle extra roads as infrastructure
     for x in range(size):
-        terrain[size // 2 + 8, x] = "Road"
+        y = size // 2 + 8
+        if terrain[y, x] == "Railway":
+            continue
+        terrain[y, x] = "Bridge" if is_water_terrain_name(str(terrain_before_roads[y, x])) else "Road"
     facilities.extend(
-        FacilityRecord(x=x - size // 2, y=size // 2 + 8 - size // 2, type="road", hp=80.0)
+        FacilityRecord(
+            x=x - size // 2,
+            y=size // 2 + 8 - size // 2,
+            type=("bridge" if terrain[size // 2 + 8, x] == "Bridge" else ("railway" if terrain[size // 2 + 8, x] == "Railway" else "road")),
+            hp=80.0
+        )
         for x in range(0, size, max(1, size // 12))
     )
     facilities.extend(

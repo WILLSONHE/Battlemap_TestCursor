@@ -109,14 +109,45 @@ UTexture2D* ATacticalMapGrid::BuildHeightTextureFrom16Bit(const TArray<uint16>& 
 	return Texture;
 }
 
-UTexture2D* ATacticalMapGrid::BuildColorTextureFromRGBA(const TArray<FColor>& ColorPixels, int32 Width, int32 Height)
+UTexture2D* ATacticalMapGrid::BuildColorTextureFromRGBA(const TArray<FColor>& ColorPixels, int32 Width, int32 Height, int32 UpscaleFactor)
 {
+	const int32 Factor = FMath::Clamp(UpscaleFactor, 1, 64);
 	if (ColorPixels.Num() != Width * Height || Width <= 0 || Height <= 0)
 	{
 		return nullptr;
 	}
 
-	UTexture2D* Texture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
+	const int32 OutWidth = Width * Factor;
+	const int32 OutHeight = Height * Factor;
+
+	TArray<FColor> Expanded;
+	if (Factor == 1)
+	{
+		Expanded = ColorPixels;
+	}
+	else
+	{
+		Expanded.SetNumUninitialized(OutWidth * OutHeight);
+		for (int32 Y = 0; Y < Height; ++Y)
+		{
+			for (int32 X = 0; X < Width; ++X)
+			{
+				const FColor Src = ColorPixels[Y * Width + X];
+				const int32 BaseOutX = X * Factor;
+				const int32 BaseOutY = Y * Factor;
+				for (int32 Oy = 0; Oy < Factor; ++Oy)
+				{
+					FColor* DestRow = Expanded.GetData() + (BaseOutY + Oy) * OutWidth + BaseOutX;
+					for (int32 Ox = 0; Ox < Factor; ++Ox)
+					{
+						DestRow[Ox] = Src;
+					}
+				}
+			}
+		}
+	}
+
+	UTexture2D* Texture = UTexture2D::CreateTransient(OutWidth, OutHeight, PF_B8G8R8A8);
 	if (!Texture || !Texture->GetPlatformData() || Texture->GetPlatformData()->Mips.Num() == 0)
 	{
 		return nullptr;
@@ -132,7 +163,7 @@ UTexture2D* ATacticalMapGrid::BuildColorTextureFromRGBA(const TArray<FColor>& Co
 
 	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
 	void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
-	FMemory::Memcpy(Data, ColorPixels.GetData(), ColorPixels.Num() * sizeof(FColor));
+	FMemory::Memcpy(Data, Expanded.GetData(), Expanded.Num() * sizeof(FColor));
 	Mip.BulkData.Unlock();
 	Texture->UpdateResource();
 	return Texture;
@@ -182,13 +213,30 @@ FIntPoint ATacticalMapGrid::WorldToCell(const FVector& WorldLocation) const
 {
 	const FVector Local = GetActorTransform().InverseTransformPosition(WorldLocation);
 	const float TileSizeUU = FMath::Max(1.0f, TileSizeMeters * 100.0f);
-	return FIntPoint(FMath::FloorToInt(Local.X / TileSizeUU), FMath::FloorToInt(Local.Y / TileSizeUU));
+	const int32 Dimension = FMath::Max(1, GridHalfExtentTiles * 2 + 1);
+	const float WorldSizeUU = static_cast<float>(Dimension) * TileSizeUU;
+	const float HalfWorldUU = 0.5f * WorldSizeUU;
+
+	// Map Local.X/Y in [-HalfWorld, +HalfWorld] to index [0..Dimension-1], then to cell id [-Half..+Half].
+	const int32 IdxX = FMath::Clamp(FMath::FloorToInt((Local.X + HalfWorldUU) / TileSizeUU), 0, Dimension - 1);
+	const int32 IdxY = FMath::Clamp(FMath::FloorToInt((Local.Y + HalfWorldUU) / TileSizeUU), 0, Dimension - 1);
+	return FIntPoint(IdxX - GridHalfExtentTiles, IdxY - GridHalfExtentTiles);
 }
 
 FVector ATacticalMapGrid::CellToWorldCenter(const FIntPoint& CellId) const
 {
 	const float TileSizeUU = FMath::Max(1.0f, TileSizeMeters * 100.0f);
-	const FVector Local((static_cast<float>(CellId.X) + 0.5f) * TileSizeUU, (static_cast<float>(CellId.Y) + 0.5f) * TileSizeUU, 0.0f);
+	const int32 Dimension = FMath::Max(1, GridHalfExtentTiles * 2 + 1);
+	const float WorldSizeUU = static_cast<float>(Dimension) * TileSizeUU;
+	const float HalfWorldUU = 0.5f * WorldSizeUU;
+
+	const float IdxX = static_cast<float>(CellId.X + GridHalfExtentTiles);
+	const float IdxY = static_cast<float>(CellId.Y + GridHalfExtentTiles);
+	const FVector Local(
+		(IdxX + 0.5f) * TileSizeUU - HalfWorldUU,
+		(IdxY + 0.5f) * TileSizeUU - HalfWorldUU,
+		0.0f
+	);
 	return GetActorTransform().TransformPosition(Local);
 }
 
@@ -244,13 +292,20 @@ void ATacticalMapGrid::ApplyTerrainTypeRules(FTerrainCellState& InOutCell) const
 	{
 	case ETerrainType::Road:
 	case ETerrainType::Bridge:
-		LandRule->SpeedMultiplier = 1.25f;
-		AmphRule->SpeedMultiplier = 1.15f;
+		// Roads/Bridges provide movement speed bonus.
+		// Requirement: Road/Bridge => x2 move speed.
+		LandRule->SpeedMultiplier = 2.0f;
+		AmphRule->SpeedMultiplier = 2.0f;
+		NavalRule->SpeedMultiplier = 2.0f;
+		AirRule->SpeedMultiplier = 2.0f;
 		InOutCell.DefenseModifier = 0.05f;
 		break;
 	case ETerrainType::Railway:
-		LandRule->SpeedMultiplier = 1.35f;
-		AmphRule->SpeedMultiplier = 1.20f;
+		// Requirement: Railway => x3 move speed.
+		LandRule->SpeedMultiplier = 3.0f;
+		AmphRule->SpeedMultiplier = 3.0f;
+		NavalRule->SpeedMultiplier = 3.0f;
+		AirRule->SpeedMultiplier = 3.0f;
 		break;
 	case ETerrainType::River:
 	case ETerrainType::Swamp:
@@ -592,7 +647,8 @@ bool ATacticalMapGrid::InitializeTerrainFromPipelineOutputs()
 	int32 TypeHeight = 0;
 	const bool bHasTerrainTypePng = TryLoadColorPng(TerrainFullPath, TypePixels, TypeWidth, TypeHeight) && TypeWidth == Width && TypeHeight == Height;
 	RuntimeHeightTexture = BuildHeightTextureFrom16Bit(HeightPixels, Width, Height);
-	RuntimeTerrainTypeTexture = bHasTerrainTypePng ? BuildColorTextureFromRGBA(TypePixels, TypeWidth, TypeHeight) : nullptr;
+	const int32 Upscale = FMath::Clamp(DiscreteTextureUpscaleFactor, 1, 64);
+	RuntimeTerrainTypeTexture = bHasTerrainTypePng ? BuildColorTextureFromRGBA(TypePixels, TypeWidth, TypeHeight, Upscale) : nullptr;
 
 	TileDataMap.Empty();
 	TerrainCellStateMap.Empty();

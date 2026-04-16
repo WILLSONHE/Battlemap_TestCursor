@@ -218,10 +218,80 @@ bool ABattleUnit::TryGetTraversalRuleAt(const FVector& WorldLocation, FTerrainTr
 	return false;
 }
 
+bool ABattleUnit::IsWaterTerrainType(ETerrainType TerrainType) const
+{
+	return TerrainType == ETerrainType::River
+		|| TerrainType == ETerrainType::Swamp
+		|| TerrainType == ETerrainType::ShallowWater
+		|| TerrainType == ETerrainType::OpenWater
+		|| TerrainType == ETerrainType::DeepWater;
+}
+
+bool ABattleUnit::IsInfrastructureTerrainType(ETerrainType TerrainType) const
+{
+	return TerrainType == ETerrainType::Road
+		|| TerrainType == ETerrainType::Bridge
+		|| TerrainType == ETerrainType::Railway;
+}
+
+bool ABattleUnit::CanLandTraverseWaterCell(const FVector& WorldLocation) const
+{
+	ATacticalMapGrid* Grid = ResolveTacticalMapGrid();
+	if (!Grid)
+	{
+		return false;
+	}
+
+	const FIntPoint TargetCellId = Grid->WorldToCell(WorldLocation);
+	FTerrainCellState TargetCell;
+	if (!Grid->TryGetCellStateById(TargetCellId, TargetCell) || !IsWaterTerrainType(TargetCell.TerrainType))
+	{
+		return false;
+	}
+
+	// Rule 1/4: land can enter water cell if adjacent to land,
+	// and also allow crossings where adjacent infrastructure (road/bridge/railway) exists.
+	static const FIntPoint NeighborOffsets[] = {
+		FIntPoint(1, 0),
+		FIntPoint(-1, 0),
+		FIntPoint(0, 1),
+		FIntPoint(0, -1)
+	};
+	for (const FIntPoint& Offset : NeighborOffsets)
+	{
+		const FIntPoint NeighborId(TargetCellId.X + Offset.X, TargetCellId.Y + Offset.Y);
+		FTerrainCellState NeighborCell;
+		if (!Grid->TryGetCellStateById(NeighborId, NeighborCell))
+		{
+			continue;
+		}
+
+		if (!IsWaterTerrainType(NeighborCell.TerrainType) || IsInfrastructureTerrainType(NeighborCell.TerrainType))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool ABattleUnit::IsTraversableAt(const FVector& WorldLocation) const
 {
 	FTerrainTraversalRule Rule;
-	return !TryGetTraversalRuleAt(WorldLocation, Rule) || Rule.bCanTraverse;
+	if (!TryGetTraversalRuleAt(WorldLocation, Rule))
+	{
+		return true;
+	}
+	if (Rule.bCanTraverse)
+	{
+		return true;
+	}
+
+	if (MobilityType == EUnitMobilityType::Land && CanLandTraverseWaterCell(WorldLocation))
+	{
+		return true;
+	}
+
+	return false;
 }
 
 float ABattleUnit::GetSpeedMultiplierAt(const FVector& WorldLocation) const

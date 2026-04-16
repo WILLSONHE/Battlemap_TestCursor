@@ -50,6 +50,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Terrain")
 	FString FacilitiesPath = TEXT("Saved/TerrainPipeline/facilities.json");
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Terrain")
+	FString TerrainOverlayPath = TEXT("Saved/TerrainPipeline/terrain_overlay.png");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Terrain")
+	FString WaterLayersPath = TEXT("Saved/TerrainPipeline/water_layers.png");
+
+	// Visual-only upscale for discrete cell textures (terrain types / overlays) to reduce half-cell bleeding
+	// without editing material graphs. 1 = no upscale.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Terrain|Visual")
+	int32 DiscreteTextureUpscaleFactor = 8;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Terrain|Status")
 	bool bHeightmapLoaded = false;
 
@@ -100,9 +111,6 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour")
 	bool bShowCoordinateAxes = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour")
-	bool bEnableHudContourFallback = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Contour|Status")
 	bool bRuntimeTextureInputReady = false;
@@ -158,7 +166,7 @@ protected:
 private:
 	void TryAutoAssignContourMaterial();
 	UTexture2D* BuildHeightTextureFrom16Bit(const TArray<uint16>& HeightPixels, int32 Width, int32 Height);
-	UTexture2D* BuildColorTextureFromRGBA(const TArray<FColor>& ColorPixels, int32 Width, int32 Height);
+	UTexture2D* BuildColorTextureFromRGBA(const TArray<FColor>& ColorPixels, int32 Width, int32 Height, int32 UpscaleFactor);
 	void ApplyRuntimeTextureInputsToMaterial();
 	bool TryLoadGrayscalePng(const FString& InPath, TArray<uint16>& OutPixels, int32& OutWidth, int32& OutHeight) const;
 	bool TryLoadColorPng(const FString& InPath, TArray<FColor>& OutPixels, int32& OutWidth, int32& OutHeight) const;
@@ -166,6 +174,7 @@ private:
 	FTerrainCellState BuildDefaultCellState(const FIntPoint& CellId, float ElevationMeters) const;
 	void ApplyTerrainTypeRules(FTerrainCellState& InOutCell) const;
 	ETerrainType TerrainTypeFromPalette(const FColor& Color) const;
+	void RecomputeCellSlopes();
 	void ApplyContourMaterialParameters();
 	void RefreshMapMeshFromTerrain();
 
@@ -177,4 +186,10 @@ private:
 
 	UPROPERTY(Transient)
 	UTexture2D* RuntimeTerrainTypeTexture;
+
+	UPROPERTY(Transient)
+	UTexture2D* RuntimeOverlayTexture;
+
+	UPROPERTY(Transient)
+	UTexture2D* RuntimeWaterLayersTexture;
 };

@@ -218,6 +218,9 @@ struct FTerrainCellState
 	float WaterDepthMeters = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float SlopeToMaxNeighbor = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsArtificialFacility = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

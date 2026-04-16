@@ -55,13 +55,13 @@ private:
 	float MinVerticalDistanceToPlane = 500.0f;
 
 	UPROPERTY(EditAnywhere, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	float MaxVerticalDistanceToPlane = 8000.0f;
+	float MaxVerticalDistanceToPlane = 15000.0f;
 
 	UPROPERTY(EditAnywhere, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	float ZoomReferencePlaneZ = 0.0f;
 
 	UPROPERTY(EditAnywhere, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	float DefaultVerticalDistanceToPlane = 1500.0f;
+	float DefaultVerticalDistanceToPlane = 8000.0f;
 
 	UPROPERTY(EditAnywhere, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	float DefaultCameraPitch = -90.0f;
