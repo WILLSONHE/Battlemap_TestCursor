@@ -4,6 +4,8 @@
 #include "Battlemap_TestCursorPlayerController.h"
 #include "Battlemap_TestCursorCharacter.h"
 #include "Battlemap_TestCursorHUD.h"
+#include "BattleGameInstance.h"
+#include "BattleCareerSaveGame.h"
 #include "TacticalMapGrid.h"
 #include "BattleUnit.h"
 #include "BattleSupplyComponent.h"
@@ -22,6 +24,7 @@ ABattlemap_TestCursorGameMode::ABattlemap_TestCursorGameMode()
 	HUDClass = ABattlemap_TestCursorHUD::StaticClass();
 	TacticalMapClass = ATacticalMapGrid::StaticClass();
 	FriendlyUnitClass = ABattleInfantryUnit::StaticClass();
+	FriendlyVehicleUnitClass = ABattleVehicleUnit::StaticClass();
 	EnemyUnitClass = ABattleVehicleUnit::StaticClass();
 	PrimaryActorTick.bCanEverTick = true;
 }
@@ -95,9 +98,42 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 
 	SupplyRoadAnchorWorld = FriendlyA;
 
-	SpawnTestUnit(FriendlyA, TEXT("Alpha-1"), true);
-	SpawnTestUnit(FriendlyB, TEXT("Bravo-2"), true);
-	SpawnTestUnit(Enemy, TEXT("Enemy-Tank"), false);
+	TArray<FPlayerLoadoutSlot> LoadoutSlots;
+	if (UBattleGameInstance* GI = Cast<UBattleGameInstance>(GetGameInstance()))
+	{
+		if (UBattleCareerSaveGame* Career = GI->GetCareerSave())
+		{
+			LoadoutSlots = Career->FriendlyLoadoutSlots;
+		}
+	}
+
+	const FVector FriendlyLane = FriendlyB - FriendlyA;
+	int32 FriendlyPlaceIndex = 0;
+	bool bAnchorFromSpawn = false;
+	for (const FPlayerLoadoutSlot& Slot : LoadoutSlots)
+	{
+		if (!Slot.bEnabled)
+		{
+			continue;
+		}
+		TSubclassOf<ABattleUnit> ClassToSpawn = (Slot.Category == EUnitCategory::Vehicle) ? FriendlyVehicleUnitClass : FriendlyUnitClass;
+		if (!ClassToSpawn)
+		{
+			ClassToSpawn = FriendlyUnitClass;
+		}
+		const FVector SpawnLoc = FriendlyA + FriendlyLane * static_cast<float>(FriendlyPlaceIndex);
+		if (!bAnchorFromSpawn)
+		{
+			SupplyRoadAnchorWorld = SpawnLoc;
+			bAnchorFromSpawn = true;
+		}
+		SpawnBattleUnit(SpawnLoc, Slot.SlotLabel, true, ClassToSpawn, Slot.Category, Slot.UnitType, false);
+		++FriendlyPlaceIndex;
+	}
+
+	SpawnBattleUnit(Enemy, TEXT("Enemy-Tank"), false, EnemyUnitClass, EUnitCategory::Vehicle, EUnitType::Tank, true);
+
+	CaptureMissionStartSnapshots();
 
 	if (ABattlemap_TestCursorPlayerController* BattleController = Cast<ABattlemap_TestCursorPlayerController>(World->GetFirstPlayerController()))
 	{
@@ -194,10 +230,16 @@ bool ABattlemap_TestCursorGameMode::AreAllEnemiesDead() const
 
 void ABattlemap_TestCursorGameMode::EvaluateMissionState()
 {
+	if (MissionOutcome != EMissionOutcomeState::InProgress)
+	{
+		return;
+	}
+
 	if (AreAllFriendliesDead())
 	{
 		MissionOutcome = EMissionOutcomeState::Defeat;
 		UE_LOG(LogTemp, Log, TEXT("Mission outcome: Defeat (%s)"), *UEnum::GetValueAsString(MissionType));
+		TryPresentMissionDebrief();
 		return;
 	}
 
@@ -205,6 +247,7 @@ void ABattlemap_TestCursorGameMode::EvaluateMissionState()
 	{
 		MissionOutcome = EMissionOutcomeState::Victory;
 		UE_LOG(LogTemp, Log, TEXT("Mission outcome: Victory (%s) — all hostiles eliminated."), *UEnum::GetValueAsString(MissionType));
+		TryPresentMissionDebrief();
 		return;
 	}
 
@@ -212,19 +255,79 @@ void ABattlemap_TestCursorGameMode::EvaluateMissionState()
 	{
 		MissionOutcome = EMissionOutcomeState::Victory;
 		UE_LOG(LogTemp, Log, TEXT("Mission outcome: Victory (Defense hold target %.1fs, elapsed %.1fs)."), DefenseHoldDurationSeconds, MissionElapsedSeconds);
+		TryPresentMissionDebrief();
 	}
 }
 
-void ABattlemap_TestCursorGameMode::SpawnTestUnit(const FVector& Location, const FString& UnitName, bool bFriendly)
+void ABattlemap_TestCursorGameMode::CaptureMissionStartSnapshots()
 {
-	UWorld* World = GetWorld();
-	if (!World)
+	MissionStartRecords.Reset();
+	for (ABattleUnit* Unit : SpawnedUnits)
+	{
+		if (!Unit)
+		{
+			continue;
+		}
+		FMissionUnitStartRecord Rec;
+		Rec.UnitLabel = Unit->UnitLabel;
+		Rec.bFriendly = Unit->bFriendly;
+		Rec.MaxHealth = Unit->UnitData.MaxHealth;
+		Rec.HealthStart = Unit->CurrentHealth;
+		MissionStartRecords.Add(Rec);
+	}
+}
+
+void ABattlemap_TestCursorGameMode::TryPresentMissionDebrief()
+{
+	if (bMissionDebriefPresented || MissionOutcome == EMissionOutcomeState::InProgress)
 	{
 		return;
 	}
+	bMissionDebriefPresented = true;
 
-	TSubclassOf<ABattleUnit> UnitClass = bFriendly ? FriendlyUnitClass : EnemyUnitClass;
-	if (!UnitClass)
+	FMissionDebriefPayload Payload;
+	Payload.Outcome = MissionOutcome;
+	Payload.MissionType = MissionType;
+
+	for (ABattleUnit* Unit : SpawnedUnits)
+	{
+		if (!Unit)
+		{
+			continue;
+		}
+		FDebriefUnitLine Line;
+		Line.UnitLabel = Unit->UnitLabel;
+		Line.bFriendly = Unit->bFriendly;
+		Line.HealthEnd = Unit->CurrentHealth;
+		Line.bDestroyed = !Unit->IsAlive();
+		Line.MaxHealthStart = Unit->UnitData.MaxHealth;
+		Line.HealthStart = Unit->CurrentHealth;
+		for (const FMissionUnitStartRecord& Rec : MissionStartRecords)
+		{
+			if (Rec.UnitLabel == Unit->UnitLabel && Rec.bFriendly == Unit->bFriendly)
+			{
+				Line.MaxHealthStart = Rec.MaxHealth;
+				Line.HealthStart = Rec.HealthStart;
+				break;
+			}
+		}
+		Payload.Lines.Add(Line);
+	}
+
+	if (UBattleGameInstance* GI = Cast<UBattleGameInstance>(GetGameInstance()))
+	{
+		GI->ApplyPostMissionExperience(Payload.Outcome);
+		if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+		{
+			GI->ShowMissionDebrief(PC, Payload);
+		}
+	}
+}
+
+void ABattlemap_TestCursorGameMode::SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, const bool bApplyEnemyTankPreset)
+{
+	UWorld* World = GetWorld();
+	if (!World || !UnitClass)
 	{
 		return;
 	}
@@ -238,9 +341,15 @@ void ABattlemap_TestCursorGameMode::SpawnTestUnit(const FVector& Location, const
 	Unit->UnitLabel = UnitName;
 	Unit->bFriendly = bFriendly;
 	Unit->UnitData.UnitId = FName(*UnitName);
-	Unit->UnitData.Category = bFriendly ? EUnitCategory::Infantry : EUnitCategory::Vehicle;
-	Unit->UnitData.UnitType = bFriendly ? EUnitType::Infantry : EUnitType::Tank;
-	if (UnitName == TEXT("Alpha-1"))
+	Unit->UnitData.Category = Category;
+	Unit->UnitData.UnitType = Type;
+
+	if (bApplyEnemyTankPreset)
+	{
+		Unit->UnitData.MaxHealth = 500.0f;
+		Unit->CurrentHealth = 500.0f;
+	}
+	else if (bFriendly && Category == EUnitCategory::Infantry)
 	{
 		Unit->UnitData.MaxHealth = 500.0f;
 		Unit->CurrentHealth = 500.0f;
@@ -250,11 +359,11 @@ void ABattlemap_TestCursorGameMode::SpawnTestUnit(const FVector& Location, const
 		Unit->UnitData.MaxHealth = 10000.0f;
 		Unit->CurrentHealth = 10000.0f;
 	}
+
 	ApplyBalanceToUnit(Unit, bFriendly);
-	if (!bFriendly && UnitName == TEXT("Enemy-Tank"))
+
+	if (bApplyEnemyTankPreset)
 	{
-		Unit->UnitData.MaxHealth = 500.0f;
-		Unit->CurrentHealth = 500.0f;
 		Unit->DetectionRange = 800.0f;
 		Unit->AttackRange = 700.0f;
 	}

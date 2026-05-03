@@ -7,6 +7,7 @@
 #include "Engine/EngineBaseTypes.h"
 #include "GameFramework/GameModeBase.h"
 #include "BattleTypes.h"
+#include "BattleCareerTypes.h"
 #include "BattleBalanceTableTypes.h"
 #include "Battlemap_TestCursorGameMode.generated.h"
 
@@ -53,6 +54,9 @@ protected:
 	TSubclassOf<ABattleUnit> FriendlyUnitClass;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
+	TSubclassOf<ABattleUnit> FriendlyVehicleUnitClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
 	TSubclassOf<ABattleUnit> EnemyUnitClass;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
@@ -86,9 +90,17 @@ protected:
 	UPROPERTY()
 	TArray<ABattleUnit*> SpawnedUnits;
 
+	TArray<FMissionUnitStartRecord> MissionStartRecords;
+
+	bool bMissionDebriefPresented = false;
+
 	void SpawnTestEnvironment();
 
-	void SpawnTestUnit(const FVector& Location, const FString& UnitName, bool bFriendly);
+	void SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, bool bApplyEnemyTankPreset);
+
+	void CaptureMissionStartSnapshots();
+
+	void TryPresentMissionDebrief();
 
 	void ApplyBalanceToUnit(ABattleUnit* Unit, bool bFriendly) const;
 

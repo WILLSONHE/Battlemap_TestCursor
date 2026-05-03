@@ -45,4 +45,10 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Battle|Balance|ECM", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float EcmJammedDetectionRangeScale = 0.55f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Battle|Balance|Career", meta = (ClampMin = "0"))
+	int32 MissionVictoryExperience = 50;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Battle|Balance|Career", meta = (ClampMin = "0"))
+	int32 MissionDefeatExperience = 15;
 };
