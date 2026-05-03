@@ -19,6 +19,8 @@
 #include "BattleCommsComponent.h"
 #include "BattleSupplyComponent.h"
 #include "BattleTypes.h"
+#include "Battlemap_TestCursorGameMode.h"
+#include "BattleBalanceTableTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/HitResult.h"
 #include "Camera/CameraComponent.h"
@@ -329,6 +331,15 @@ void ABattlemap_TestCursorPlayerController::SetupInputComponent()
 		InputComponent->BindKey(EKeys::LeftAlt, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnAltPressed);
 		InputComponent->BindKey(EKeys::LeftAlt, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnAltReleased);
 		InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnFocusSelectedUnit);
+		InputComponent->BindKey(EKeys::One, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMapViewLand);
+		InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMapViewOcean);
+		InputComponent->BindKey(EKeys::Three, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnCycleDebugViewMode);
+		InputComponent->BindKey(EKeys::Four, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewFinal);
+		InputComponent->BindKey(EKeys::NumPadOne, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewTerrainTypes);
+		InputComponent->BindKey(EKeys::NumPadTwo, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewWaterLayers);
+		InputComponent->BindKey(EKeys::NumPadThree, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewIsWaterMask);
+		InputComponent->BindKey(EKeys::NumPadFour, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewBaseTint);
+		InputComponent->BindKey(EKeys::NumPadFive, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewContourMask);
 	}
 }
 
@@ -505,6 +516,8 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 	}
 
 	int32 IssuedCount = 0;
+	int32 SkippedAttackNoCommsCount = 0;
+	int32 MovePathFailedCount = 0;
 	FVector2D FormationForward = FVector2D::ZeroVector;
 	FVector FormationOrigin = CachedDestination;
 	if (!bAttackCommand)
@@ -545,11 +558,17 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 
 	for (ABattleUnit* Unit : SelectedUnits)
 	{
-		if (!Unit
-			|| !Unit->CommandComponent
-			|| !Unit->CommsComponent
-			|| !Unit->CommsComponent->IsCommandEnabled())
+		if (!Unit || !Unit->CommandComponent)
 		{
+			continue;
+		}
+
+		if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
+		{
+			if (bAttackCommand)
+			{
+				SkippedAttackNoCommsCount++;
+			}
 			continue;
 		}
 
@@ -573,7 +592,11 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 				MoveTarget.X += Offset2D.X;
 				MoveTarget.Y += Offset2D.Y;
 			}
-			Unit->IssueMoveCommandInterrupt(MoveTarget, ECommandPriority::High);
+			if (!Unit->IssueMoveCommandInterrupt(MoveTarget, ECommandPriority::High))
+			{
+				MovePathFailedCount++;
+				continue;
+			}
 		}
 
 		++IssuedCount;
@@ -582,11 +605,31 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 	if (bAttackCommand)
 	{
 		LastAttackTarget = ClickedUnit;
-		SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达攻击命令。"), IssuedCount));
+		FString Msg = FString::Printf(TEXT("已向 %d 个单位下达攻击命令。"), IssuedCount);
+		if (SkippedAttackNoCommsCount > 0)
+		{
+			Msg += FString::Printf(TEXT(" %d 个单位因通讯不可用未下达。"), SkippedAttackNoCommsCount);
+		}
+		SetStatusHint(Msg);
 	}
 	else
 	{
-		if (bEnableFormationMove && IssuedCount > 1)
+		if (MovePathFailedCount > 0 && IssuedCount == 0)
+		{
+			SetStatusHint(TEXT("没有可靠通行路径"));
+		}
+		else if (MovePathFailedCount > 0)
+		{
+			if (bEnableFormationMove && IssuedCount > 1)
+			{
+				SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount));
+			}
+			else
+			{
+				SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount));
+			}
+		}
+		else if (bEnableFormationMove && IssuedCount > 1)
 		{
 			SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。"), IssuedCount));
 		}
@@ -731,6 +774,23 @@ FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot()
 		{
 			Snapshot.AttackTargetName = HoverUnit->UnitLabel;
 			Snapshot.AttackTargetHealth = HoverUnit->CurrentHealth;
+		}
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		if (ABattlemap_TestCursorGameMode* BattleGM = Cast<ABattlemap_TestCursorGameMode>(World->GetAuthGameMode()))
+		{
+			Snapshot.ActiveMissionType = BattleGM->GetMissionType();
+			Snapshot.ActiveMissionOutcome = BattleGM->GetMissionOutcome();
+			Snapshot.MissionElapsedSeconds = BattleGM->GetMissionElapsedSeconds();
+			Snapshot.DefenseHoldDurationSeconds = BattleGM->GetDefenseHoldDurationSeconds();
+
+			const FBattleBalanceTableRow BalanceRow = BattleGM->GetEffectiveBattleBalanceRow();
+			Snapshot.ActiveBalanceVersion = BalanceRow.BalanceVersion;
+			Snapshot.EcmJammedDetectionRangeScale = BalanceRow.EcmJammedDetectionRangeScale;
+			Snapshot.SupplyFoodConsumePerSecond = BalanceRow.SupplyFoodConsumePerSecond;
+			Snapshot.SupplyFuelConsumePerSecond = BalanceRow.SupplyFuelConsumePerSecond;
 		}
 	}
 
@@ -938,4 +998,87 @@ void ABattlemap_TestCursorPlayerController::OnMouseYWhilePanning(float AxisValue
 void ABattlemap_TestCursorPlayerController::OnClearSelection()
 {
 	ClearSelectionInternal(true);
+}
+
+void ABattlemap_TestCursorPlayerController::OnMapViewLand()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetMapViewMode(EMapViewMode::Land);
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnMapViewOcean()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetMapViewMode(EMapViewMode::Ocean);
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnCycleDebugViewMode()
+{
+	if (!TacticalMapGrid)
+	{
+		return;
+	}
+	TacticalMapGrid->CycleDebugViewMode();
+	const EMapDebugViewMode Mode = TacticalMapGrid->GetDebugViewMode();
+	const UEnum* EnumPtr = StaticEnum<EMapDebugViewMode>();
+	const FString ModeName = EnumPtr ? EnumPtr->GetNameStringByValue(static_cast<int64>(Mode)) : TEXT("Unknown");
+	SetStatusHint(FString::Printf(TEXT("DebugViewMode => %s"), *ModeName));
+}
+
+void ABattlemap_TestCursorPlayerController::OnDebugViewFinal()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetDebugViewMode(EMapDebugViewMode::Final);
+		SetStatusHint(TEXT("DebugViewMode => Final"));
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnDebugViewTerrainTypes()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetDebugViewMode(EMapDebugViewMode::TerrainTypes);
+		SetStatusHint(TEXT("DebugViewMode => TerrainTypes"));
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnDebugViewWaterLayers()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetDebugViewMode(EMapDebugViewMode::WaterLayers);
+		SetStatusHint(TEXT("DebugViewMode => WaterLayers"));
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnDebugViewIsWaterMask()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetDebugViewMode(EMapDebugViewMode::IsWaterMask);
+		SetStatusHint(TEXT("DebugViewMode => IsWaterMask"));
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnDebugViewBaseTint()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetDebugViewMode(EMapDebugViewMode::BaseTint);
+		SetStatusHint(TEXT("DebugViewMode => BaseTint"));
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnDebugViewContourMask()
+{
+	if (TacticalMapGrid)
+	{
+		TacticalMapGrid->SetDebugViewMode(EMapDebugViewMode::ContourMask);
+		SetStatusHint(TEXT("DebugViewMode => ContourMask"));
+	}
 }

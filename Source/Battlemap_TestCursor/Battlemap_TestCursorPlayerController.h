@@ -122,6 +122,15 @@ protected:
 	void OnMouseXWhilePanning(float AxisValue);
 	void OnMouseYWhilePanning(float AxisValue);
 	void OnClearSelection();
+	void OnMapViewLand();
+	void OnMapViewOcean();
+	void OnCycleDebugViewMode();
+	void OnDebugViewFinal();
+	void OnDebugViewTerrainTypes();
+	void OnDebugViewWaterLayers();
+	void OnDebugViewIsWaterMask();
+	void OnDebugViewBaseTint();
+	void OnDebugViewContourMask();
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "Battle|Debug")

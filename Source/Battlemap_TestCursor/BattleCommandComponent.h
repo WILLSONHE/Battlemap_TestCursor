@@ -20,6 +20,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
 	void RemoveCommandsByType(ECommandType CommandType);
 
+	UFUNCTION(BlueprintPure, Category = "Battle|Command")
+	bool HasPendingCommands() const { return CommandQueue.Num() > 0; }
+
 private:
 	UPROPERTY()
 	TArray<FActiveCommand> CommandQueue;

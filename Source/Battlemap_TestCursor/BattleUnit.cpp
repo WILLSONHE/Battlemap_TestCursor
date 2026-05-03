@@ -3,16 +3,22 @@
 #include "BattleDetectionComponent.h"
 #include "BattleCommsComponent.h"
 #include "BattleSupplyComponent.h"
+#include "BattleBalanceDeveloperSettings.h"
+#include "Battlemap_TestCursorGameMode.h"
+#include "BattleEnemyTacticalBrainComponent.h"
+#include "BattleECMZoneComponent.h"
 #include "MoveCommandMarkerActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "UObject/ConstructorHelpers.h"
+#include "UObject/Object.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "TacticalMapGrid.h"
 
-ABattleUnit::ABattleUnit()
+ABattleUnit::ABattleUnit(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
@@ -48,6 +54,14 @@ ABattleUnit::ABattleUnit()
 	DetectionComponent = CreateDefaultSubobject<UBattleDetectionComponent>(TEXT("DetectionComponent"));
 	CommsComponent = CreateDefaultSubobject<UBattleCommsComponent>(TEXT("CommsComponent"));
 	SupplyComponent = CreateDefaultSubobject<UBattleSupplyComponent>(TEXT("SupplyComponent"));
+
+	EcmZone = CreateDefaultSubobject<UBattleECMZoneComponent>(TEXT("EcmZone"));
+	if (EcmZone)
+	{
+		EcmZone->SetupAttachment(RootComponent);
+		EcmZone->JamRadiusUU = 0.0f;
+		EcmZone->bAffectsFriendliesOnly = true;
+	}
 }
 
 void ABattleUnit::Tick(float DeltaSeconds)
@@ -85,6 +99,23 @@ void ABattleUnit::Tick(float DeltaSeconds)
 
 	ProcessActiveCommand(DeltaSeconds);
 	TryAutoEngage(DeltaSeconds);
+
+	if (SupplyComponent && IsAlive())
+	{
+		bool bRoadConnected = false;
+		if (ATacticalMapGrid* Grid = ResolveTacticalMapGrid())
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (ABattlemap_TestCursorGameMode* GM = Cast<ABattlemap_TestCursorGameMode>(World->GetAuthGameMode()))
+				{
+					bRoadConnected = Grid->AreWorldPositionsConnectedForRoadSupply(GetActorLocation(), GM->GetSupplyRoadAnchorWorld());
+				}
+			}
+		}
+		SupplyComponent->ConsumeForUnitType(UnitData.Category, bRoadConnected, DeltaSeconds);
+	}
+
 	UpdateMeshScaleVisual();
 }
 
@@ -124,8 +155,15 @@ void ABattleUnit::SetSelected(bool bInSelected)
 	}
 }
 
-void ABattleUnit::IssueMoveCommandInterrupt(const FVector& TargetLocation, ECommandPriority Priority)
+bool ABattleUnit::IssueMoveCommandInterrupt(const FVector& TargetLocation, ECommandPriority Priority)
 {
+	ClearMovePath();
+	if (!TryPopulateMovePathFromGoal(TargetLocation))
+	{
+		LastCombatEvent = TEXT("没有可靠通行路径");
+		return false;
+	}
+
 	if (CommandComponent)
 	{
 		CommandComponent->RemoveCommandsByType(ECommandType::Move);
@@ -137,9 +175,11 @@ void ABattleUnit::IssueMoveCommandInterrupt(const FVector& TargetLocation, EComm
 	ActiveCommand.bDirectCommand = true;
 	AttackTarget = nullptr;
 	bHasActiveCommand = true;
+	MovePathPointIndex = 0;
 	RuntimeState = EUnitRuntimeState::Move;
 	LastCombatEvent = FString::Printf(TEXT("%s 执行机动命令。"), *UnitLabel);
 	SpawnOrReplaceMoveMarker(TargetLocation);
+	return true;
 }
 
 void ABattleUnit::IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandPriority Priority)
@@ -156,6 +196,7 @@ void ABattleUnit::IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandP
 	}
 
 	DestroyMoveMarker();
+	ClearMovePath();
 	AttackTarget = TargetUnit;
 	ActiveCommand.CommandType = ECommandType::Attack;
 	ActiveCommand.Priority = Priority;
@@ -286,11 +327,64 @@ bool ABattleUnit::IsTraversableAt(const FVector& WorldLocation) const
 		return true;
 	}
 
-	if (MobilityType == EUnitMobilityType::Land && CanLandTraverseWaterCell(WorldLocation))
+	return false;
+}
+
+bool ABattleUnit::TryResolveSlidingMoveStep(const FVector& FromWorld, const FVector& DesiredDeltaXY, FVector& OutAcceptedDeltaXY) const
+{
+	FVector D = FVector(DesiredDeltaXY.X, DesiredDeltaXY.Y, 0.0f);
+	const float LenSq = D.SizeSquared2D();
+	if (LenSq <= KINDA_SMALL_NUMBER)
 	{
+		OutAcceptedDeltaXY = FVector::ZeroVector;
+		return false;
+	}
+
+	const float Len = FMath::Sqrt(LenSq);
+	const FVector Dir = D / Len;
+
+	if (IsTraversableAt(FromWorld + D))
+	{
+		OutAcceptedDeltaXY = D;
 		return true;
 	}
 
+	const FVector DX(D.X, 0.0f, 0.0f);
+	if (!FMath::IsNearlyZero(D.X) && IsTraversableAt(FromWorld + DX))
+	{
+		OutAcceptedDeltaXY = DX;
+		return true;
+	}
+
+	const FVector DY(0.0f, D.Y, 0.0f);
+	if (!FMath::IsNearlyZero(D.Y) && IsTraversableAt(FromWorld + DY))
+	{
+		OutAcceptedDeltaXY = DY;
+		return true;
+	}
+
+	float Lo = 0.0f;
+	float Hi = Len;
+	for (int32 Iter = 0; Iter < 12; ++Iter)
+	{
+		const float Mid = (Lo + Hi) * 0.5f;
+		if (IsTraversableAt(FromWorld + Dir * Mid))
+		{
+			Lo = Mid;
+		}
+		else
+		{
+			Hi = Mid;
+		}
+	}
+
+	if (Lo > 2.0f)
+	{
+		OutAcceptedDeltaXY = Dir * Lo;
+		return true;
+	}
+
+	OutAcceptedDeltaXY = FVector::ZeroVector;
 	return false;
 }
 
@@ -329,7 +423,72 @@ bool ABattleUnit::AcquireNextCommand()
 		return false;
 	}
 
-	return CommandComponent->TryPopNextCommand(ActiveCommand);
+	FActiveCommand Next;
+	while (CommandComponent->TryPopNextCommand(Next))
+	{
+		if (Next.CommandType != ECommandType::Move)
+		{
+			ActiveCommand = Next;
+			ClearMovePath();
+			bHasActiveCommand = true;
+			return true;
+		}
+
+		ActiveCommand = Next;
+		if (TryPopulateMovePathFromGoal(Next.TargetLocation))
+		{
+			MovePathPointIndex = 0;
+			bHasActiveCommand = true;
+			SpawnOrReplaceMoveMarker(ActiveCommand.TargetLocation);
+			return true;
+		}
+
+		LastCombatEvent = TEXT("没有可靠通行路径");
+	}
+
+	return false;
+}
+
+void ABattleUnit::ClearMovePath()
+{
+	MovePathWorldWaypoints.Reset();
+	MovePathPointIndex = 0;
+}
+
+bool ABattleUnit::TryPopulateMovePathFromGoal(const FVector& GoalWorld)
+{
+	MovePathWorldWaypoints.Reset();
+	MovePathPointIndex = 0;
+
+	if (ATacticalMapGrid* Grid = ResolveTacticalMapGrid())
+	{
+		if (!Grid->FindShortestMovePath(MobilityType, GetActorLocation(), GoalWorld, MovePathWorldWaypoints))
+		{
+			return false;
+		}
+
+		const float TrimDist = FMath::Max(50.0f, Grid->GetTileSizeUU() * 0.4f);
+		while (MovePathWorldWaypoints.Num() > 0 && FVector::Dist2D(GetActorLocation(), MovePathWorldWaypoints[0]) < TrimDist)
+		{
+			MovePathWorldWaypoints.RemoveAt(0);
+		}
+
+		if (MovePathWorldWaypoints.Num() == 0)
+		{
+			if (FVector::Dist2D(GetActorLocation(), GoalWorld) < TrimDist)
+			{
+				MovePathWorldWaypoints.Add(GoalWorld);
+			}
+			else
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	MovePathWorldWaypoints.Add(GoalWorld);
+	return true;
 }
 
 void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
@@ -363,36 +522,74 @@ void ABattleUnit::ProcessActiveCommand(float DeltaSeconds)
 	RuntimeState = EUnitRuntimeState::Move;
 
 	const FVector CurrentLocation = GetActorLocation();
-	const FVector Delta = ActiveCommand.TargetLocation - CurrentLocation;
-	const float Distance = Delta.Size();
-	if (Distance <= 10.0f)
+	FVector SubGoal = ActiveCommand.TargetLocation;
+	if (MovePathWorldWaypoints.Num() > 0 && MovePathPointIndex < MovePathWorldWaypoints.Num())
 	{
-		SetActorLocation(ActiveCommand.TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		SubGoal = MovePathWorldWaypoints[MovePathPointIndex];
+	}
+
+	const FVector Delta = SubGoal - CurrentLocation;
+	const float Distance2D = FVector::Dist2D(CurrentLocation, SubGoal);
+	if (Distance2D <= 10.0f)
+	{
+		SetActorLocation(SubGoal, false, nullptr, ETeleportType::TeleportPhysics);
 		EnforceMinimumUnitSpacing();
-		DestroyMoveMarker();
-		bHasActiveCommand = false;
-		RuntimeState = EUnitRuntimeState::Idle;
+		if (MovePathWorldWaypoints.Num() > 0)
+		{
+			MovePathPointIndex++;
+			if (MovePathPointIndex >= MovePathWorldWaypoints.Num())
+			{
+				DestroyMoveMarker();
+				bHasActiveCommand = false;
+				ClearMovePath();
+				RuntimeState = EUnitRuntimeState::Idle;
+			}
+		}
+		else
+		{
+			DestroyMoveMarker();
+			bHasActiveCommand = false;
+			ClearMovePath();
+			RuntimeState = EUnitRuntimeState::Idle;
+		}
 		return;
 	}
 
-	const FVector CandidateStep = Delta.GetSafeNormal() * (MoveSpeed * GetSpeedMultiplierAt(CurrentLocation)) * DeltaSeconds;
-	const FVector CandidateLocation = CurrentLocation + CandidateStep;
-	if (!IsTraversableAt(CandidateLocation))
+	FVector CandidateStep = Delta.GetSafeNormal() * (MoveSpeed * GetSpeedMultiplierAt(CurrentLocation)) * DeltaSeconds;
+	CandidateStep.Z = 0.0f;
+	FVector Step = CandidateStep;
+	if (!TryResolveSlidingMoveStep(CurrentLocation, CandidateStep, Step) || Step.SizeSquared2D() <= KINDA_SMALL_NUMBER)
 	{
 		bHasActiveCommand = false;
+		ClearMovePath();
+		DestroyMoveMarker();
 		RuntimeState = EUnitRuntimeState::Idle;
 		LastCombatEvent = FString::Printf(TEXT("%s 当前地形不可通行，机动命令中止。"), *UnitLabel);
 		return;
 	}
 
-	const FVector Step = CandidateStep;
-	if (Step.Size() >= Distance)
+	if (Step.Size2D() >= Distance2D)
 	{
-		SetActorLocation(ActiveCommand.TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		SetActorLocation(SubGoal, false, nullptr, ETeleportType::TeleportPhysics);
 		EnforceMinimumUnitSpacing();
-		DestroyMoveMarker();
-		bHasActiveCommand = false;
-		RuntimeState = EUnitRuntimeState::Idle;
+		if (MovePathWorldWaypoints.Num() > 0)
+		{
+			MovePathPointIndex++;
+			if (MovePathPointIndex >= MovePathWorldWaypoints.Num())
+			{
+				DestroyMoveMarker();
+				bHasActiveCommand = false;
+				ClearMovePath();
+				RuntimeState = EUnitRuntimeState::Idle;
+			}
+		}
+		else
+		{
+			DestroyMoveMarker();
+			bHasActiveCommand = false;
+			ClearMovePath();
+			RuntimeState = EUnitRuntimeState::Idle;
+		}
 	}
 	else
 	{
@@ -421,7 +618,8 @@ void ABattleUnit::ProcessAttackCommand(float DeltaSeconds)
 	RuntimeState = EUnitRuntimeState::Attack;
 
 	const float Distance = FVector::Dist2D(GetActorLocation(), AttackTarget->GetActorLocation());
-	if (!bFriendly && Distance > DetectionRange)
+	const float MaxAcquireRange = DetectionRange;
+	if (!bFriendly && Distance > MaxAcquireRange)
 	{
 		LastCombatEvent = FString::Printf(TEXT("%s 目标超出探测范围。"), *UnitLabel);
 		AttackTarget = nullptr;
@@ -432,16 +630,19 @@ void ABattleUnit::ProcessAttackCommand(float DeltaSeconds)
 
 	if (Distance > AttackRange)
 	{
-		const FVector Direction = (AttackTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
-		const FVector CandidateLocation = GetActorLocation() + Direction * (MoveSpeed * GetSpeedMultiplierAt(GetActorLocation())) * DeltaSeconds;
-		if (!IsTraversableAt(CandidateLocation))
+		const FVector CurrentLocation = GetActorLocation();
+		const FVector Direction = (AttackTarget->GetActorLocation() - CurrentLocation).GetSafeNormal2D();
+		FVector CandidateStep = Direction * (MoveSpeed * GetSpeedMultiplierAt(CurrentLocation)) * DeltaSeconds;
+		CandidateStep.Z = 0.0f;
+		FVector Step = CandidateStep;
+		if (!TryResolveSlidingMoveStep(CurrentLocation, CandidateStep, Step) || Step.SizeSquared2D() <= KINDA_SMALL_NUMBER)
 		{
 			LastCombatEvent = FString::Printf(TEXT("%s 无法穿越当前地形，追击中止。"), *UnitLabel);
 			bHasActiveCommand = false;
 			RuntimeState = EUnitRuntimeState::Idle;
 			return;
 		}
-		SetActorLocation(CandidateLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		SetActorLocation(CurrentLocation + Step, false, nullptr, ETeleportType::TeleportPhysics);
 		EnforceMinimumUnitSpacing();
 		return;
 	}
@@ -545,8 +746,34 @@ void ABattleUnit::EnforceMinimumUnitSpacing()
 		}
 
 		const float PushDistance = MinAllowedDistance - Dist2D;
-		CurrentLocation += PushDir * PushDistance;
-		SetActorLocation(CurrentLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		FVector PushDelta = PushDir * PushDistance;
+		PushDelta.Z = 0.0f;
+		FVector NewLocation = CurrentLocation + PushDelta;
+		if (!IsTraversableAt(NewLocation))
+		{
+			float Lo = 0.0f;
+			float Hi = PushDistance;
+			for (int32 Bin = 0; Bin < 10; ++Bin)
+			{
+				const float Mid = (Lo + Hi) * 0.5f;
+				const FVector TryLoc = CurrentLocation + PushDir * Mid;
+				if (IsTraversableAt(TryLoc))
+				{
+					Lo = Mid;
+				}
+				else
+				{
+					Hi = Mid;
+				}
+			}
+			if (Lo <= 2.0f)
+			{
+				continue;
+			}
+			NewLocation = CurrentLocation + PushDir * Lo;
+		}
+		SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		CurrentLocation = NewLocation;
 	}
 }
 
@@ -582,7 +809,10 @@ void ABattleUnit::TryAutoEngage(float DeltaSeconds)
 		}
 
 		const float DistSq = FVector::DistSquared2D(GetActorLocation(), Candidate->GetActorLocation());
-		if (DistSq > FMath::Square(DetectionRange))
+		// Enemy AI uses full DetectionRange. Friendly Jammed (e.g. inside this unit's ECM) must not shrink
+		// acquisition below the authored range, or units never engage while still "inside" the HUD ring.
+		const float MaxPerceiveRange = DetectionRange;
+		if (DistSq > FMath::Square(MaxPerceiveRange))
 		{
 			continue;
 		}
@@ -632,3 +862,16 @@ void ABattleUnit::UpdateMeshScaleVisual()
 
 	UnitMesh->SetWorldScale3D(BaseScale);
 }
+
+ABattleVehicleUnit::ABattleVehicleUnit(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	TacticalBrain = ObjectInitializer.CreateDefaultSubobject<UBattleEnemyTacticalBrainComponent>(this, TEXT("TacticalBrain"));
+	if (EcmZone)
+	{
+		// 设为 >0 时由 GameMode 在每帧 PostActorTick 中统一结算友军 Jam（见 UBattleECMZoneComponent::UpdateFriendlyJamForWorld）。
+		EcmZone->JamRadiusUU = 0.0f;
+		EcmZone->bAffectsFriendliesOnly = true;
+	}
+}
+

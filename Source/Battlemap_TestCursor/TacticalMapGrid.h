@@ -12,6 +12,24 @@ class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UTexture2D;
 
+UENUM(BlueprintType)
+enum class EMapViewMode : uint8
+{
+	Land UMETA(DisplayName = "Land"),
+	Ocean UMETA(DisplayName = "Ocean")
+};
+
+UENUM(BlueprintType)
+enum class EMapDebugViewMode : uint8
+{
+	Final UMETA(DisplayName = "Final"),
+	TerrainTypes UMETA(DisplayName = "TerrainTypes"),
+	WaterLayers UMETA(DisplayName = "WaterLayers"),
+	IsWaterMask UMETA(DisplayName = "IsWaterMask"),
+	BaseTint UMETA(DisplayName = "BaseTint"),
+	ContourMask UMETA(DisplayName = "ContourMask")
+};
+
 UCLASS()
 class BATTLEMAP_TESTCURSOR_API ATacticalMapGrid : public AActor
 {
@@ -59,7 +77,19 @@ public:
 	// Visual-only upscale for discrete cell textures (terrain types / overlays) to reduce half-cell bleeding
 	// without editing material graphs. 1 = no upscale.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Terrain|Visual")
-	int32 DiscreteTextureUpscaleFactor = 8;
+	int32 DiscreteTextureUpscaleFactor = 16;
+
+	// Contour height label overlay (A1): generate a runtime label texture and feed to material.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour|Labels")
+	bool bEnableContourHeightLabels = true;
+
+	// Label interval in meters.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour|Labels", meta = (ClampMin = "1.0"))
+	float ContourLabelIntervalMeters = 100.0f;
+
+	// Only label when elevation is close enough to an exact multiple of interval.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour|Labels", meta = (ClampMin = "0.0"))
+	float ContourLabelToleranceMeters = 1.0f;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Terrain|Status")
 	bool bHeightmapLoaded = false;
@@ -107,10 +137,21 @@ public:
 	float ContourLineWidth = 1.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour")
+	float ContourAAWidth = 0.01f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour")
 	float ContourDepthOffset = 0.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour")
 	bool bShowCoordinateAxes = true;
+
+	/** 0 = Land view (terrain palette + unified water tint); 1 = Ocean view (water layers + unified land tint). Driven by material parameter MapViewMode. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour")
+	EMapViewMode MapViewMode = EMapViewMode::Land;
+
+	/** Debug switch passed to material scalar DebugViewMode (0..4). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle|Contour|Debug")
+	EMapDebugViewMode DebugViewMode = EMapDebugViewMode::Final;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Contour|Status")
 	bool bRuntimeTextureInputReady = false;
@@ -154,11 +195,38 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Battle|Contour")
 	bool IsContourMaterialConfigured() const { return TerrainSurfaceMaterial != nullptr; }
 
+	UFUNCTION(BlueprintCallable, Category = "Battle|Contour")
+	void SetMapViewMode(EMapViewMode NewMode);
+
+	UFUNCTION(BlueprintCallable, Category = "Battle|Contour|Debug")
+	void SetDebugViewMode(EMapDebugViewMode NewMode);
+
+	UFUNCTION(BlueprintCallable, Category = "Battle|Contour|Debug")
+	void CycleDebugViewMode();
+
+	UFUNCTION(BlueprintPure, Category = "Battle|Contour|Debug")
+	EMapDebugViewMode GetDebugViewMode() const { return DebugViewMode; }
+
 	UFUNCTION(BlueprintPure, Category = "Battle|Terrain")
 	bool TryGetCellStateById(const FIntPoint& CellId, FTerrainCellState& OutCellState) const;
 
+	/** BFS over Road/Railway/Bridge cells; endpoints may be one cell off the network if adjacent to a road cell. */
+	UFUNCTION(BlueprintPure, Category = "Battle|Terrain|Supply")
+	bool AreWorldPositionsConnectedForRoadSupply(const FVector& WorldA, const FVector& WorldB) const;
+
+	/**
+	 * A* on the tactical grid (8-neighbor + chord simplification). Respects TraversalRules per mobility; road/rail/bridge get lower enter cost.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Battle|Pathfinding")
+	bool FindShortestMovePath(EUnitMobilityType MobilityType, FVector StartWorldLocation, FVector GoalWorldLocation, TArray<FVector>& OutWorldWaypoints) const;
+
 	UFUNCTION(BlueprintPure, Category = "Battle|Terrain")
 	float GetTileSizeUU() const { return FMath::Max(1.0f, TileSizeMeters * 100.0f); }
+
+	/** Used by pathfinding / tools; same rules as unit traversability. */
+	bool IsCellTraversableForMobility(EUnitMobilityType MobilityType, const FIntPoint& CellId) const;
+
+	float GetPathfindingEnterCost(EUnitMobilityType MobilityType, const FIntPoint& CellId) const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -175,7 +243,11 @@ private:
 	void ApplyTerrainTypeRules(FTerrainCellState& InOutCell) const;
 	ETerrainType TerrainTypeFromPalette(const FColor& Color) const;
 	void RecomputeCellSlopes();
+	void FixupWaterDepthPostPass();
+	UTexture2D* BuildContourLabelTexture(int32 Width, int32 Height, int32 UpscaleFactor);
 	void ApplyContourMaterialParameters();
+	void ApplyMapViewModeToMaterial();
+	void ApplyDebugViewModeToMaterial();
 	void RefreshMapMeshFromTerrain();
 
 	UPROPERTY(Transient)
@@ -192,4 +264,7 @@ private:
 
 	UPROPERTY(Transient)
 	UTexture2D* RuntimeWaterLayersTexture;
+
+	UPROPERTY(Transient)
+	UTexture2D* RuntimeContourLabelTexture;
 };

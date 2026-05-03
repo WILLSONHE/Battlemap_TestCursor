@@ -9,6 +9,8 @@ class UBattleCommandComponent;
 class UBattleDetectionComponent;
 class UBattleCommsComponent;
 class UBattleSupplyComponent;
+class UBattleEnemyTacticalBrainComponent;
+class UBattleECMZoneComponent;
 class USceneComponent;
 class UStaticMeshComponent;
 class AMoveCommandMarkerActor;
@@ -20,7 +22,7 @@ class BATTLEMAP_TESTCURSOR_API ABattleUnit : public APawn
 	GENERATED_BODY()
 
 public:
-	ABattleUnit();
+	ABattleUnit(const FObjectInitializer& ObjectInitializer);
 
 	virtual void Tick(float DeltaSeconds) override;
 
@@ -79,7 +81,7 @@ public:
 	bool IsSelected() const { return bSelected; }
 
 	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
-	void IssueMoveCommandInterrupt(const FVector& TargetLocation, ECommandPriority Priority = ECommandPriority::High);
+	bool IssueMoveCommandInterrupt(const FVector& TargetLocation, ECommandPriority Priority = ECommandPriority::High);
 
 	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
 	void IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandPriority Priority = ECommandPriority::High);
@@ -111,6 +113,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Components")
 	UBattleSupplyComponent* SupplyComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|ECM")
+	UBattleECMZoneComponent* EcmZone = nullptr;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|Visual")
 	USceneComponent* SceneRoot;
 
@@ -133,6 +138,9 @@ protected:
 	bool IsTraversableAt(const FVector& WorldLocation) const;
 	float GetSpeedMultiplierAt(const FVector& WorldLocation) const;
 
+	/** If DesiredDeltaXY is blocked by a cell edge, try axis-only or partial length along the same heading (wall slide). */
+	bool TryResolveSlidingMoveStep(const FVector& FromWorld, const FVector& DesiredDeltaXY, FVector& OutAcceptedDeltaXY) const;
+
 	void SpawnOrReplaceMoveMarker(const FVector& TargetLocation);
 
 	void DestroyMoveMarker();
@@ -142,6 +150,16 @@ protected:
 	void UpdateMeshScaleVisual();
 
 	bool AcquireNextCommand();
+
+	/** Computes grid path into MovePathWorldWaypoints; no grid => straight to goal. */
+	bool TryPopulateMovePathFromGoal(const FVector& GoalWorld);
+
+	void ClearMovePath();
+
+	UPROPERTY()
+	TArray<FVector> MovePathWorldWaypoints;
+
+	int32 MovePathPointIndex = 0;
 
 	UPROPERTY()
 	FActiveCommand ActiveCommand;
@@ -174,6 +192,12 @@ UCLASS()
 class BATTLEMAP_TESTCURSOR_API ABattleVehicleUnit : public ABattleUnit
 {
 	GENERATED_BODY()
+
+public:
+	ABattleVehicleUnit(const FObjectInitializer& ObjectInitializer);
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battle|AI")
+	UBattleEnemyTacticalBrainComponent* TacticalBrain = nullptr;
 };
 
 UCLASS()

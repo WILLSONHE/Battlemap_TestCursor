@@ -139,6 +139,14 @@ enum class EMissionType : uint8
 };
 
 UENUM(BlueprintType)
+enum class EMissionOutcomeState : uint8
+{
+	InProgress,
+	Victory,
+	Defeat
+};
+
+UENUM(BlueprintType)
 enum class EUnitRuntimeState : uint8
 {
 	Idle,
@@ -438,6 +446,30 @@ struct FDebugBattleSnapshot
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 VisibleEnemyCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EMissionType ActiveMissionType = EMissionType::Assault;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EMissionOutcomeState ActiveMissionOutcome = EMissionOutcomeState::InProgress;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float MissionElapsedSeconds = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float DefenseHoldDurationSeconds = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString ActiveBalanceVersion;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float EcmJammedDetectionRangeScale = 0.55f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float SupplyFoodConsumePerSecond = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float SupplyFuelConsumePerSecond = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EUnitRuntimeState SelectedUnitRuntimeState = EUnitRuntimeState::Idle;

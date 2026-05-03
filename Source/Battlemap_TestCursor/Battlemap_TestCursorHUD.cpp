@@ -1,6 +1,7 @@
 #include "Battlemap_TestCursorHUD.h"
 #include "Battlemap_TestCursorPlayerController.h"
 #include "BattleUnit.h"
+#include "BattleECMZoneComponent.h"
 #include "BattleTypes.h"
 #include "TacticalMapGrid.h"
 #include "Engine/Canvas.h"
@@ -37,6 +38,27 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 
 	TArray<FString> Lines;
 	Lines.Add(TEXT("Battlemap_Test 最小测试关卡"));
+
+	const UEnum* MissionOutcomeEnum = StaticEnum<EMissionOutcomeState>();
+	const FString OutcomeName = MissionOutcomeEnum ? MissionOutcomeEnum->GetNameStringByValue(static_cast<int64>(Snapshot.ActiveMissionOutcome)) : TEXT("Unknown");
+	const UEnum* MissionTypeEnum = StaticEnum<EMissionType>();
+	const FString MissionTypeName = MissionTypeEnum ? MissionTypeEnum->GetNameStringByValue(static_cast<int64>(Snapshot.ActiveMissionType)) : TEXT("Unknown");
+	Lines.Add(FString::Printf(TEXT("任务：%s  │  结果：%s"), *MissionTypeName, *OutcomeName));
+	if (Snapshot.ActiveMissionType == EMissionType::Defense && Snapshot.DefenseHoldDurationSeconds > 0.0f && Snapshot.ActiveMissionOutcome == EMissionOutcomeState::InProgress)
+	{
+		const float Remain = FMath::Max(0.0f, Snapshot.DefenseHoldDurationSeconds - Snapshot.MissionElapsedSeconds);
+		Lines.Add(FString::Printf(TEXT("防御计时：已过 %.1fs / 目标 %.1fs  │  剩余 %.1fs"), Snapshot.MissionElapsedSeconds, Snapshot.DefenseHoldDurationSeconds, Remain));
+	}
+	else
+	{
+		Lines.Add(FString::Printf(TEXT("任务经过时间：%.1fs"), Snapshot.MissionElapsedSeconds));
+	}
+	Lines.Add(FString::Printf(TEXT("平衡版本：%s  │  ECM干扰感知系数(表/ini)：%.2f  │  补给消耗/秒 食物 %.4f 燃油 %.4f"),
+		Snapshot.ActiveBalanceVersion.IsEmpty() ? TEXT("—") : *Snapshot.ActiveBalanceVersion,
+		Snapshot.EcmJammedDetectionRangeScale,
+		Snapshot.SupplyFoodConsumePerSecond,
+		Snapshot.SupplyFuelConsumePerSecond));
+
 	Lines.Add(TEXT("左键短按：单选单位或点地面清空"));
 	Lines.Add(TEXT("左键按住拖动：框选单位"));
 	Lines.Add(TEXT("右键短按：向当前选中单位下达命令"));
@@ -64,26 +86,6 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 	Lines.Add(FString::Printf(TEXT("战争迷雾：当前可见敌军 %d"), Snapshot.VisibleEnemyCount));
 	if (ATacticalMapGrid* TacticalMapGrid = BattleController->GetTacticalMapGrid())
 	{
-		Lines.Add(FString::Printf(TEXT("高度图加载：%s  回退模式：%s  几何起伏：%s"),
-			TacticalMapGrid->bHeightmapLoaded ? TEXT("成功") : TEXT("失败"),
-			TacticalMapGrid->bUsedProceduralFallback ? TEXT("是") : TEXT("否"),
-			TacticalMapGrid->bVisualGeometryDeformed ? TEXT("是") : TEXT("否")));
-		Lines.Add(FString::Printf(TEXT("地形显示模式：%s"),
-			TacticalMapGrid->bUseFlatContourMode ? TEXT("平面+等高线材质") : TEXT("Landscape导入模式")));
-		Lines.Add(FString::Printf(TEXT("等高线材质配置：%s"),
-			TacticalMapGrid->IsContourMaterialConfigured() ? TEXT("已配置") : TEXT("未配置")));
-		Lines.Add(FString::Printf(TEXT("材质输入链：%s"),
-			TacticalMapGrid->bRuntimeTextureInputReady ? TEXT("Height/Terrain 纹理已喂入") : TEXT("未就绪")));
-		Lines.Add(FString::Printf(TEXT("高度图分辨率：%d x %d"),
-			TacticalMapGrid->LoadedHeightmapWidth,
-			TacticalMapGrid->LoadedHeightmapHeight));
-		Lines.Add(FString::Printf(TEXT("Landscape建议参数：Section=%d  Sections/Comp=%d  Comp=%d x %d  Overall=%d x %d"),
-			TacticalMapGrid->LandscapeSectionSizeQuads,
-			TacticalMapGrid->LandscapeSectionsPerComponent,
-			TacticalMapGrid->LandscapeComponentCountX,
-			TacticalMapGrid->LandscapeComponentCountY,
-			TacticalMapGrid->LandscapeOverallResolutionX,
-			TacticalMapGrid->LandscapeOverallResolutionY));
 		Lines.Add(FString::Printf(TEXT("等高线参数：间距 %.1f  线宽 %.2f  深度偏移 %.2f"),
 			TacticalMapGrid->ContourIntervalMeters,
 			TacticalMapGrid->ContourLineWidth,
@@ -184,6 +186,52 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 		DrawLine(MinX, MinY + Height, MinX, MinY, SelectionOutlineColor, 1.5f);
 	}
 
+	const float EcmLineThickness = 2.0f;
+	const FLinearColor EcmLineColor(0.0f, 0.0f, 0.0f, 0.95f);
+	const int32 EcmSegmentCount = 48;
+
+	UWorld* World = BattleController->GetWorld();
+	if (World)
+	{
+		for (TActorIterator<ABattleUnit> It(World); It; ++It)
+		{
+			ABattleUnit* Unit = *It;
+			if (!Unit || !Unit->IsAlive() || Unit->IsHidden())
+			{
+				continue;
+			}
+
+			if (!Unit->EcmZone || Unit->EcmZone->JamRadiusUU <= KINDA_SMALL_NUMBER)
+			{
+				continue;
+			}
+
+			const float EcmRadius = Unit->EcmZone->JamRadiusUU;
+			const FVector Origin = Unit->EcmZone->GetComponentLocation();
+			FVector2D PrevScreen = FVector2D::ZeroVector;
+			bool bHasPrev = false;
+			for (int32 Segment = 0; Segment <= EcmSegmentCount; ++Segment)
+			{
+				const float Angle = (static_cast<float>(Segment) / static_cast<float>(EcmSegmentCount)) * 2.0f * PI;
+				const FVector WorldPoint = Origin + FVector(FMath::Cos(Angle) * EcmRadius, FMath::Sin(Angle) * EcmRadius, 0.0f);
+				FVector2D ScreenPoint;
+				if (!BattleController->ProjectWorldLocationToScreen(WorldPoint, ScreenPoint, true))
+				{
+					bHasPrev = false;
+					continue;
+				}
+
+				if (bHasPrev)
+				{
+					DrawLine(PrevScreen.X, PrevScreen.Y, ScreenPoint.X, ScreenPoint.Y, EcmLineColor, EcmLineThickness);
+				}
+
+				PrevScreen = ScreenPoint;
+				bHasPrev = true;
+			}
+		}
+	}
+
 	const TArray<ABattleUnit*>& SelectedUnits = BattleController->GetSelectedUnits();
 	for (ABattleUnit* Unit : SelectedUnits)
 	{
@@ -242,7 +290,6 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 		}
 	}
 
-	UWorld* World = BattleController->GetWorld();
 	if (World)
 	{
 		for (TActorIterator<ABattleUnit> It(World); It; ++It)
