@@ -11,16 +11,34 @@
 
 namespace
 {
-	const TArray<int32> RankXpThresholds = { 0, 100, 250, 500, 900, 1500, 2500 };
+	// Ten officer ranks; threshold[i] = min total XP to be at rank index i.
+	const TArray<int32> RankXpThresholds = { 0, 150, 400, 800, 1400, 2200, 3200, 4500, 6000, 8000 };
 	const TArray<FString> RankNames = {
-		TEXT("\u5217\u5175"),
-		TEXT("\u4e0b\u58eb"),
-		TEXT("\u4e2d\u58eb"),
-		TEXT("\u4e0a\u58eb"),
 		TEXT("\u5c11\u5c09"),
 		TEXT("\u4e2d\u5c09"),
-		TEXT("\u4e0a\u5c09")
+		TEXT("\u4e0a\u5c09"),
+		TEXT("\u5c11\u6821"),
+		TEXT("\u4e2d\u6821"),
+		TEXT("\u4e0a\u6821"),
+		TEXT("\u5927\u6821"),
+		TEXT("\u5c11\u5c06"),
+		TEXT("\u4e2d\u5c06"),
+		TEXT("\u4e0a\u5c06")
 	};
+	const TArray<FString> RankCommandScales = {
+		TEXT("\u6392"),
+		TEXT("\u6392"),
+		TEXT("\u8fde"),
+		TEXT("\u8425"),
+		TEXT("\u8425"),
+		TEXT("\u5408\u6210\u8425/\u56e2/"),
+		TEXT("\u65c5/\u5408\u6210\u65c5/\u5e08"),
+		TEXT("\u5e08/\u519b"),
+		TEXT("\u96c6\u56e2\u519b"),
+		TEXT("\u96c6\u56e2\u519b")
+	};
+	/** Command ceiling as EFormationUnitScale ordinal (1=\u6392 .. 8=\u96c6\u56e2\u519b). */
+	const int8 RankCommandCeilingOrd[10] = { 1, 1, 2, 3, 3, 4, 5, 7, 8, 8 };
 }
 
 void UBattleGameInstance::SanitizeMenuStack()
@@ -94,6 +112,8 @@ void UBattleGameInstance::LoadCareerFromDisk()
 		CareerSave->ResetToDefaultRoster();
 		SaveCareerToDisk();
 	}
+
+	CareerSave->MilitaryRankIndex = FMath::Clamp(CareerSave->MilitaryRankIndex, 0, 9);
 }
 
 void UBattleGameInstance::SaveCareerToDisk()
@@ -122,6 +142,18 @@ FString UBattleGameInstance::GetRankDisplayName(int32 RankIndex)
 	return RankNames[RankIndex];
 }
 
+FString UBattleGameInstance::GetRankCommandScaleLabel(int32 RankIndex)
+{
+	const int32 I = FMath::Clamp(RankIndex, 0, RankCommandScales.Num() - 1);
+	return RankCommandScales[I];
+}
+
+int32 UBattleGameInstance::GetMaxSelectableUnitScaleOrdinal(int32 RankIndex)
+{
+	const int32 I = FMath::Clamp(RankIndex, 0, 9);
+	return FMath::Max(0, int32(RankCommandCeilingOrd[I]) - 1);
+}
+
 int32 UBattleGameInstance::GetXpToNextRank(int32 RankIndex, int32 CurrentXp)
 {
 	const int32 NextRank = RankIndex + 1;
@@ -145,7 +177,7 @@ void UBattleGameInstance::ApplyPostMissionExperience(EMissionOutcomeState Outcom
 	const int32 Delta = Outcome == EMissionOutcomeState::Victory ? Bal->MissionVictoryExperience : Bal->MissionDefeatExperience;
 	CareerSave->Experience += Delta;
 
-	while (CareerSave->MilitaryRankIndex + 1 < RankXpThresholds.Num()
+	while (CareerSave->MilitaryRankIndex + 1 < RankNames.Num()
 		&& CareerSave->Experience >= RankXpThresholds[CareerSave->MilitaryRankIndex + 1])
 	{
 		CareerSave->MilitaryRankIndex++;
@@ -183,6 +215,12 @@ void UBattleGameInstance::ShowLoadoutScreen(APlayerController* PC)
 	}
 	SanitizeMenuStack();
 	LoadCareerFromDisk();
+#if WITH_EDITOR
+	if (CareerSave)
+	{
+		CareerSave->MilitaryRankIndex = 8;
+	}
+#endif
 	HideStackedMenuWidgets();
 	if (UUserWidget* W = CreateWidget<UUserWidget>(PC, LoadoutWidgetClass))
 	{

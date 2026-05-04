@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Battlemap_TestCursorGameMode.h"
+#include "BattleLoadoutScreenWidget.h"
 #include "Battlemap_TestCursorPlayerController.h"
 #include "Battlemap_TestCursorCharacter.h"
 #include "Battlemap_TestCursorHUD.h"
@@ -110,8 +111,9 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 	const FVector FriendlyLane = FriendlyB - FriendlyA;
 	int32 FriendlyPlaceIndex = 0;
 	bool bAnchorFromSpawn = false;
-	for (const FPlayerLoadoutSlot& Slot : LoadoutSlots)
+	for (int32 SlotIdx = 0; SlotIdx < LoadoutSlots.Num(); ++SlotIdx)
 	{
+		const FPlayerLoadoutSlot& Slot = LoadoutSlots[SlotIdx];
 		if (!Slot.bEnabled)
 		{
 			continue;
@@ -127,7 +129,10 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 			SupplyRoadAnchorWorld = SpawnLoc;
 			bAnchorFromSpawn = true;
 		}
-		SpawnBattleUnit(SpawnLoc, Slot.SlotLabel, true, ClassToSpawn, Slot.Category, Slot.UnitType, false);
+		const FString SpawnLabel = Slot.bSlotLabelUserOverride && !Slot.SlotLabel.IsEmpty()
+			? Slot.SlotLabel
+			: UBattleLoadoutScreenWidget::ComputeBattleSequenceLabel(SlotIdx, LoadoutSlots);
+		SpawnBattleUnit(SpawnLoc, SpawnLabel, true, ClassToSpawn, Slot.Category, Slot.UnitType, false);
 		++FriendlyPlaceIndex;
 	}
 

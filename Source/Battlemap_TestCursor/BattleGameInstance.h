@@ -50,6 +50,10 @@ public:
 	/** Cumulative XP thresholds for rank index (last entry is max rank cap). */
 	static int32 GetExperienceForRank(int32 RankIndex);
 	static FString GetRankDisplayName(int32 RankIndex);
+	/** Design table: 军衔对应的「最高指挥规模」展示文案。 */
+	static FString GetRankCommandScaleLabel(int32 RankIndex);
+	/** Max `EFormationUnitScale` ordinal (0=\u73ed .. 8) allowed in loadout rows for this rank (inclusive). */
+	static int32 GetMaxSelectableUnitScaleOrdinal(int32 RankIndex);
 	static int32 GetXpToNextRank(int32 RankIndex, int32 CurrentXp);
 
 protected:

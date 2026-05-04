@@ -12,7 +12,6 @@ class BATTLEMAP_TESTCURSOR_API UBattleLoadoutSlotRowWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	/** Call immediately after CreateWidget; NativeConstruct runs before Owner is known, so UI is built here. */
 	void DeferredSetup(UBattleLoadoutScreenWidget* InOwner, int32 InSlotIndex);
 
 protected:
@@ -26,11 +25,20 @@ protected:
 	void OnDeleteClicked();
 
 	UFUNCTION()
+	void OnInsertChildClicked();
+
+	UFUNCTION()
 	void OnLabelCommitted(const FText& Text, ETextCommit::Type CommitType);
 
 	UFUNCTION()
-	void OnCategoryChanged(FString SelectedItem, ESelectInfo::Type SelectInfo);
+	void OnScaleChanged(FString SelectedItem, ESelectInfo::Type SelectInfo);
 
 	UFUNCTION()
-	void OnEnabledChanged(bool bIsChecked);
+	void OnBranchChanged(FString SelectedItem, ESelectInfo::Type SelectInfo);
+
+	UFUNCTION()
+	void OnClassChanged(FString SelectedItem, ESelectInfo::Type SelectInfo);
+
+	UFUNCTION()
+	void OnUnitChanged(FString SelectedItem, ESelectInfo::Type SelectInfo);
 };

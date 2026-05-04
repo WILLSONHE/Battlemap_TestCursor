@@ -6,6 +6,7 @@
 #include "BattleLoadoutScreenWidget.generated.h"
 
 class UVerticalBox;
+class UHorizontalBox;
 
 UCLASS()
 class BATTLEMAP_TESTCURSOR_API UBattleLoadoutScreenWidget : public UUserWidget
@@ -13,6 +14,26 @@ class BATTLEMAP_TESTCURSOR_API UBattleLoadoutScreenWidget : public UUserWidget
 	GENERATED_BODY()
 
 	friend class UBattleLoadoutSlotRowWidget;
+
+public:
+	static constexpr int32 MaxDirectChildrenPerUnit = 11;
+
+	/** Read-only ORBAT label from current tree (e.g. 1\u84251\u8fde3\u73ed). */
+	FString GetBattleSequenceLabel(int32 SlotIndex) const;
+
+	/** Same as GetBattleSequenceLabel but for an arbitrary slot array (e.g. career save before UI build). */
+	static FString ComputeBattleSequenceLabel(int32 SlotIndex, const TArray<FPlayerLoadoutSlot>& Slots);
+
+	int32 GetCareerRankIndex() const;
+	/** Count rows whose parent is ParentSlotIndex (use INDEX_NONE for top-level). */
+	int32 CountDirectChildren(int32 ParentSlotIndex) const;
+	/** Max unit-scale ordinal (0..8) allowed on this row given rank + parent chain. */
+	int32 ComputeMaxAllowedScaleOrdinalForRow(int32 SlotIndex) const;
+	void RemoveSlotCascade(int32 SlotIndex);
+	void InsertChildSlotAt(int32 ParentSlotIndex);
+	static TArray<int32> BuildOrbatDisplayOrder(const TArray<FPlayerLoadoutSlot>& Slots);
+	static void ApplySpawnMappingFromCatalogStrings(FPlayerLoadoutSlot& Slot);
+	static void ApplyDefaultCatalogStrings(FPlayerLoadoutSlot& Slot);
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -29,9 +50,10 @@ protected:
 	UPROPERTY()
 	TObjectPtr<class UTextBlock> XpText;
 
-	TArray<FPlayerLoadoutSlot> MirrorSlots;
+	UPROPERTY()
+	TObjectPtr<class UTextBlock> LoadoutCountText;
 
-	static constexpr int32 MaxSlots = 8;
+	TArray<FPlayerLoadoutSlot> MirrorSlots;
 
 	void RebuildList();
 	void SyncMirrorFromSave();
@@ -50,4 +72,5 @@ protected:
 	void OnBackClicked();
 
 	void RefreshRankXpLabels();
+	void RefreshLoadoutCountLabel();
 };
