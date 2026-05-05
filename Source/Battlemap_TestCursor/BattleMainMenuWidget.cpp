@@ -1,6 +1,7 @@
 #include "BattleMainMenuWidget.h"
 #include "BattleGameInstance.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -48,10 +49,17 @@ void UBattleMainMenuWidget::BuildNativeMainMenuIfNeeded()
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), GMainMenuNativeRootName);
 	WidgetTree->RootWidget = Root;
 
+	UBorder* BlackBg = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MenuBlackBg"));
+	BlackBg->SetBrushColor(FLinearColor::Black);
+	BlackBg->SetVisibility(ESlateVisibility::HitTestInvisible);
+	if (UCanvasPanelSlot* BgSlot = Root->AddChildToCanvas(BlackBg))
+	{
+		BgSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+		BgSlot->SetOffsets(FMargin(0.f));
+		BgSlot->SetZOrder(-1000);
+	}
+
 	UVerticalBox* VB = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("MenuVB"));
-	UCanvasPanelSlot* CanvasSlot = Root->AddChildToCanvas(VB);
-	CanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-	CanvasSlot->SetOffsets(FMargin(80.0f, 80.0f, 80.0f, 80.0f));
 
 	auto AddLabel = [&](const TCHAR* Txt)
 	{
@@ -93,6 +101,18 @@ void UBattleMainMenuWidget::BuildNativeMainMenuIfNeeded()
 		Btn->AddChild(Lab);
 		VB->AddChildToVerticalBox(Btn)->SetPadding(FMargin(0.f, 8.f, 0.f, 8.f));
 		Btn->OnClicked.AddDynamic(this, &UBattleMainMenuWidget::OnQuitClicked);
+	}
+
+	UBorder* ContentWrap = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MenuContentWrap"));
+	ContentWrap->SetBrushColor(FLinearColor(1.f, 1.f, 1.f, 0.f));
+	ContentWrap->SetPadding(FMargin(80.f));
+	ContentWrap->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	ContentWrap->SetContent(VB);
+	if (UCanvasPanelSlot* WrapSlot = Root->AddChildToCanvas(ContentWrap))
+	{
+		WrapSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+		WrapSlot->SetOffsets(FMargin(0.f));
+		WrapSlot->SetZOrder(0);
 	}
 }
 
