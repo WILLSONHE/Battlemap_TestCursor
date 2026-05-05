@@ -391,19 +391,52 @@ void UBattleLoadoutScreenWidget::RemoveSlotCascade(int32 SlotIndex)
 		}
 	};
 	Collect(SlotIndex);
-	TArray<int32> Order = Remove.Array();
-	Order.Sort([](int32 A, int32 B) { return A > B; });
-	for (int32 R : Order)
+
+	TArray<int32> RemovedSorted;
+	RemovedSorted.Reserve(Remove.Num());
+	for (const int32 R : Remove)
 	{
-		MirrorSlots.RemoveAt(R);
+		RemovedSorted.Add(R);
 	}
-	for (FPlayerLoadoutSlot& S : MirrorSlots)
+	RemovedSorted.Sort();
+
+	auto CountRemovedBefore = [&RemovedSorted](int32 OldIdx) -> int32
 	{
-		if (!MirrorSlots.IsValidIndex(S.ParentSlotIndex))
+		int32 C = 0;
+		for (const int32 R : RemovedSorted)
 		{
-			S.ParentSlotIndex = INDEX_NONE;
+			if (R < OldIdx)
+			{
+				++C;
+			}
 		}
+		return C;
+	};
+
+	TArray<FPlayerLoadoutSlot> NewSlots;
+	NewSlots.Reserve(MirrorSlots.Num() - Remove.Num());
+	for (int32 OldI = 0; OldI < MirrorSlots.Num(); ++OldI)
+	{
+		if (Remove.Contains(OldI))
+		{
+			continue;
+		}
+		FPlayerLoadoutSlot S = MirrorSlots[OldI];
+		const int32 OldP = S.ParentSlotIndex;
+		if (OldP != INDEX_NONE)
+		{
+			if (Remove.Contains(OldP))
+			{
+				S.ParentSlotIndex = INDEX_NONE;
+			}
+			else
+			{
+				S.ParentSlotIndex = OldP - CountRemovedBefore(OldP);
+			}
+		}
+		NewSlots.Add(MoveTemp(S));
 	}
+	MirrorSlots = MoveTemp(NewSlots);
 	RebuildList();
 	RefreshRankXpLabels();
 	RefreshLoadoutCountLabel();
@@ -448,14 +481,25 @@ void UBattleLoadoutScreenWidget::SyncMirrorFromSave()
 	}
 	if (MirrorSlots.Num() == 0)
 	{
-		FPlayerLoadoutSlot A;
-		A.bEnabled = true;
-		A.bSlotLabelUserOverride = false;
-		A.ParentSlotIndex = INDEX_NONE;
-		A.UnitScale = EFormationUnitScale::Squad;
-		ApplyDefaultCatalogStrings(A);
-		ApplySpawnMappingFromCatalogStrings(A);
-		MirrorSlots.Add(A);
+		FPlayerLoadoutSlot Co;
+		Co.bEnabled = true;
+		Co.bSlotLabelUserOverride = false;
+		Co.ParentSlotIndex = INDEX_NONE;
+		Co.UnitScale = EFormationUnitScale::Company;
+		ApplyDefaultCatalogStrings(Co);
+		ApplySpawnMappingFromCatalogStrings(Co);
+		MirrorSlots.Add(Co);
+		for (int32 i = 0; i < 2; ++i)
+		{
+			FPlayerLoadoutSlot Sq;
+			Sq.bEnabled = true;
+			Sq.bSlotLabelUserOverride = false;
+			Sq.ParentSlotIndex = 0;
+			Sq.UnitScale = EFormationUnitScale::Squad;
+			ApplyDefaultCatalogStrings(Sq);
+			ApplySpawnMappingFromCatalogStrings(Sq);
+			MirrorSlots.Add(Sq);
+		}
 	}
 	else
 	{

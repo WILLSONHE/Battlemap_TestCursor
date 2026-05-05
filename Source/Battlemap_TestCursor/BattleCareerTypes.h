@@ -87,6 +87,22 @@ struct FDebriefUnitLine
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bDestroyed = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString LoadoutClass;
+};
+
+/** Destroyed units aggregated by loadout class (one side). */
+USTRUCT(BlueprintType)
+struct FDebriefClassCasualty
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString ClassName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 DestroyedCount = 0;
 };
 
 /** Passed to the debrief widget after Victory / Defeat. */
@@ -103,6 +119,24 @@ struct FMissionDebriefPayload
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<FDebriefUnitLine> Lines;
+
+	/** Sum over units of max(0, mission-start ammo minus current ammo). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 TotalRoundsExpended = 0;
+
+	/** Sum of food consumed (start - end) per unit supply. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float TotalFoodConsumed = 0.f;
+
+	/** Sum of fuel consumed (start - end) per unit supply. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float TotalFuelConsumed = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FDebriefClassCasualty> FriendlyDestroyedByClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FDebriefClassCasualty> EnemyDestroyedByClass;
 };
 
 /** Snapshot at mission start for one unit. */
@@ -122,4 +156,19 @@ struct FMissionUnitStartRecord
 
 	UPROPERTY()
 	float HealthStart = 0.0f;
+
+	UPROPERTY()
+	int32 SpawnOrdinal = INDEX_NONE;
+
+	UPROPERTY()
+	FString LoadoutClass;
+
+	UPROPERTY()
+	float FoodStart = 0.f;
+
+	UPROPERTY()
+	float FuelStart = 0.f;
+
+	UPROPERTY()
+	int32 AmmoStart = 0;
 };

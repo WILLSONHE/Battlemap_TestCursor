@@ -18,6 +18,82 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 
+namespace
+{
+	void AddDestroyedByClass(TArray<FDebriefClassCasualty>& Arr, const FString& ClassName)
+	{
+		const FString Key = ClassName.IsEmpty() ? FString(TEXT("\u672a\u5206\u7c7b")) : ClassName;
+		for (FDebriefClassCasualty& Entry : Arr)
+		{
+			if (Entry.ClassName == Key)
+			{
+				Entry.DestroyedCount++;
+				return;
+			}
+		}
+		FDebriefClassCasualty NewEntry;
+		NewEntry.ClassName = Key;
+		NewEntry.DestroyedCount = 1;
+		Arr.Add(NewEntry);
+	}
+
+	bool LoadoutSlotHasChild(int32 SlotIdx, const TArray<FPlayerLoadoutSlot>& Slots)
+	{
+		for (int32 j = 0; j < Slots.Num(); ++j)
+		{
+			if (Slots[j].ParentSlotIndex == SlotIdx)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Only spawn \u73ed that belong under a non-\u73ed ORBAT row (excludes mis-tagged parent rows and root-only squads). */
+	bool SquadSlotEligibleForBattleSpawn(const FPlayerLoadoutSlot& Slot, const TArray<FPlayerLoadoutSlot>& Slots)
+	{
+		const int32 P = Slot.ParentSlotIndex;
+		if (P == INDEX_NONE || !Slots.IsValidIndex(P))
+		{
+			return false;
+		}
+		return Slots[P].UnitScale != EFormationUnitScale::Squad;
+	}
+}
+
+TSubclassOf<ABattleUnit> ABattlemap_TestCursorGameMode::PickClassForLoadoutSlot(const FPlayerLoadoutSlot& Slot) const
+{
+	switch (Slot.Category)
+	{
+	case EUnitCategory::Infantry:
+		return FriendlyUnitClass ? FriendlyUnitClass : TSubclassOf<ABattleUnit>(ABattleInfantryUnit::StaticClass());
+	case EUnitCategory::Vehicle:
+		return FriendlyVehicleUnitClass ? FriendlyVehicleUnitClass : TSubclassOf<ABattleUnit>(ABattleVehicleUnit::StaticClass());
+	case EUnitCategory::Aircraft:
+		if (FriendlyAircraftClass)
+		{
+			return FriendlyAircraftClass;
+		}
+		return FriendlyVehicleUnitClass ? FriendlyVehicleUnitClass : TSubclassOf<ABattleUnit>(ABattleAircraftUnit::StaticClass());
+	case EUnitCategory::NavalSurface:
+		if (FriendlyNavalSurfaceClass)
+		{
+			return FriendlyNavalSurfaceClass;
+		}
+		return FriendlyVehicleUnitClass ? FriendlyVehicleUnitClass : TSubclassOf<ABattleUnit>(ABattleNavalSurfaceUnit::StaticClass());
+	case EUnitCategory::NavalSub:
+		if (FriendlySubmarineClass)
+		{
+			return FriendlySubmarineClass;
+		}
+		return FriendlyVehicleUnitClass ? FriendlyVehicleUnitClass : TSubclassOf<ABattleUnit>(ABattleSubmarineUnit::StaticClass());
+	case EUnitCategory::Facility:
+		return FriendlyVehicleUnitClass ? FriendlyVehicleUnitClass : TSubclassOf<ABattleUnit>(ABattleFacilityUnit::StaticClass());
+	default:
+		return FriendlyVehicleUnitClass ? FriendlyVehicleUnitClass : TSubclassOf<ABattleUnit>(ABattleVehicleUnit::StaticClass());
+	}
+}
+
 ABattlemap_TestCursorGameMode::ABattlemap_TestCursorGameMode()
 {
 	PlayerControllerClass = ABattlemap_TestCursorPlayerController::StaticClass();
@@ -26,6 +102,9 @@ ABattlemap_TestCursorGameMode::ABattlemap_TestCursorGameMode()
 	TacticalMapClass = ATacticalMapGrid::StaticClass();
 	FriendlyUnitClass = ABattleInfantryUnit::StaticClass();
 	FriendlyVehicleUnitClass = ABattleVehicleUnit::StaticClass();
+	FriendlyNavalSurfaceClass = ABattleNavalSurfaceUnit::StaticClass();
+	FriendlySubmarineClass = ABattleSubmarineUnit::StaticClass();
+	FriendlyAircraftClass = ABattleAircraftUnit::StaticClass();
 	EnemyUnitClass = ABattleVehicleUnit::StaticClass();
 	PrimaryActorTick.bCanEverTick = true;
 }
@@ -79,6 +158,29 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 		return;
 	}
 
+	if (ABattlemap_TestCursorPlayerController* PC = Cast<ABattlemap_TestCursorPlayerController>(World->GetFirstPlayerController()))
+	{
+		PC->SetSelectedUnits(TArray<ABattleUnit*>());
+	}
+	for (ABattleUnit* Old : SpawnedUnits)
+	{
+		if (IsValid(Old))
+		{
+			Old->Destroy();
+		}
+	}
+	SpawnedUnits.Reset();
+	MissionStartRecords.Reset();
+	bMissionDebriefPresented = false;
+	MissionOutcome = EMissionOutcomeState::InProgress;
+	MissionElapsedSeconds = 0.f;
+
+	if (SpawnedMapGrid)
+	{
+		SpawnedMapGrid->Destroy();
+		SpawnedMapGrid = nullptr;
+	}
+
 	SpawnedMapGrid = World->SpawnActor<ATacticalMapGrid>(TacticalMapClass, FVector::ZeroVector, FRotator::ZeroRotator);
 	if (SpawnedMapGrid)
 	{
@@ -88,13 +190,15 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 
 	FVector FriendlyA(-1200.0f, -600.0f, 80.0f);
 	FVector FriendlyB(-1200.0f, 600.0f, 80.0f);
-	FVector Enemy(1200.0f, 0.0f, 80.0f);
+	FVector EnemyA(1200.0f, -600.0f, 80.0f);
+	FVector EnemyB(1200.0f, 600.0f, 80.0f);
 	if (SpawnedMapGrid)
 	{
 		const float UnitBaseZ = SpawnedMapGrid->GetActorLocation().Z + 20.0f;
 		FriendlyA.Z = UnitBaseZ;
 		FriendlyB.Z = UnitBaseZ;
-		Enemy.Z = UnitBaseZ;
+		EnemyA.Z = UnitBaseZ;
+		EnemyB.Z = UnitBaseZ;
 	}
 
 	SupplyRoadAnchorWorld = FriendlyA;
@@ -109,21 +213,31 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 	}
 
 	const FVector FriendlyLane = FriendlyB - FriendlyA;
+	const FVector EnemyLane = EnemyB - EnemyA;
 	int32 FriendlyPlaceIndex = 0;
 	bool bAnchorFromSpawn = false;
 	for (int32 SlotIdx = 0; SlotIdx < LoadoutSlots.Num(); ++SlotIdx)
 	{
 		const FPlayerLoadoutSlot& Slot = LoadoutSlots[SlotIdx];
-		if (!Slot.bEnabled)
+		if (!Slot.bEnabled || Slot.UnitScale != EFormationUnitScale::Squad)
 		{
 			continue;
 		}
-		TSubclassOf<ABattleUnit> ClassToSpawn = (Slot.Category == EUnitCategory::Vehicle) ? FriendlyVehicleUnitClass : FriendlyUnitClass;
+		if (LoadoutSlotHasChild(SlotIdx, LoadoutSlots))
+		{
+			continue;
+		}
+		if (!SquadSlotEligibleForBattleSpawn(Slot, LoadoutSlots))
+		{
+			continue;
+		}
+		TSubclassOf<ABattleUnit> ClassToSpawn = PickClassForLoadoutSlot(Slot);
 		if (!ClassToSpawn)
 		{
-			ClassToSpawn = FriendlyUnitClass;
+			continue;
 		}
 		const FVector SpawnLoc = FriendlyA + FriendlyLane * static_cast<float>(FriendlyPlaceIndex);
+		const FVector EnemySpawnLoc = EnemyA + EnemyLane * static_cast<float>(FriendlyPlaceIndex);
 		if (!bAnchorFromSpawn)
 		{
 			SupplyRoadAnchorWorld = SpawnLoc;
@@ -132,11 +246,12 @@ void ABattlemap_TestCursorGameMode::SpawnTestEnvironment()
 		const FString SpawnLabel = Slot.bSlotLabelUserOverride && !Slot.SlotLabel.IsEmpty()
 			? Slot.SlotLabel
 			: UBattleLoadoutScreenWidget::ComputeBattleSequenceLabel(SlotIdx, LoadoutSlots);
-		SpawnBattleUnit(SpawnLoc, SpawnLabel, true, ClassToSpawn, Slot.Category, Slot.UnitType, false);
+		const FString LoadoutClassName = Slot.LoadoutClass;
+		SpawnBattleUnit(SpawnLoc, SpawnLabel, true, ClassToSpawn, Slot.Category, Slot.UnitType, false, LoadoutClassName);
+		const FString EnemyLabel = FString::Printf(TEXT("\u654c-%s"), *SpawnLabel);
+		SpawnBattleUnit(EnemySpawnLoc, EnemyLabel, false, ClassToSpawn, Slot.Category, Slot.UnitType, false, LoadoutClassName);
 		++FriendlyPlaceIndex;
 	}
-
-	SpawnBattleUnit(Enemy, TEXT("Enemy-Tank"), false, EnemyUnitClass, EUnitCategory::Vehicle, EUnitType::Tank, true);
 
 	CaptureMissionStartSnapshots();
 
@@ -278,6 +393,14 @@ void ABattlemap_TestCursorGameMode::CaptureMissionStartSnapshots()
 		Rec.bFriendly = Unit->bFriendly;
 		Rec.MaxHealth = Unit->UnitData.MaxHealth;
 		Rec.HealthStart = Unit->CurrentHealth;
+		Rec.SpawnOrdinal = Unit->MissionSpawnOrdinal;
+		Rec.LoadoutClass = Unit->UnitData.LoadoutClass;
+		if (Unit->SupplyComponent)
+		{
+			Rec.FoodStart = Unit->SupplyComponent->Food;
+			Rec.FuelStart = Unit->SupplyComponent->Fuel;
+		}
+		Rec.AmmoStart = Unit->CurrentAmmo;
 		MissionStartRecords.Add(Rec);
 	}
 }
@@ -307,13 +430,36 @@ void ABattlemap_TestCursorGameMode::TryPresentMissionDebrief()
 		Line.bDestroyed = !Unit->IsAlive();
 		Line.MaxHealthStart = Unit->UnitData.MaxHealth;
 		Line.HealthStart = Unit->CurrentHealth;
+		Line.LoadoutClass = Unit->UnitData.LoadoutClass;
+		const FMissionUnitStartRecord* StartMatch = nullptr;
 		for (const FMissionUnitStartRecord& Rec : MissionStartRecords)
 		{
-			if (Rec.UnitLabel == Unit->UnitLabel && Rec.bFriendly == Unit->bFriendly)
+			if (Rec.SpawnOrdinal != INDEX_NONE && Rec.SpawnOrdinal == Unit->MissionSpawnOrdinal)
 			{
-				Line.MaxHealthStart = Rec.MaxHealth;
-				Line.HealthStart = Rec.HealthStart;
+				StartMatch = &Rec;
 				break;
+			}
+		}
+		if (StartMatch)
+		{
+			Line.MaxHealthStart = StartMatch->MaxHealth;
+			Line.HealthStart = StartMatch->HealthStart;
+			Payload.TotalRoundsExpended += FMath::Max(0, StartMatch->AmmoStart - Unit->CurrentAmmo);
+		}
+		if (Unit->SupplyComponent && StartMatch)
+		{
+			Payload.TotalFoodConsumed += FMath::Max(0.f, StartMatch->FoodStart - Unit->SupplyComponent->Food);
+			Payload.TotalFuelConsumed += FMath::Max(0.f, StartMatch->FuelStart - Unit->SupplyComponent->Fuel);
+		}
+		if (Line.bDestroyed)
+		{
+			if (Line.bFriendly)
+			{
+				AddDestroyedByClass(Payload.FriendlyDestroyedByClass, Line.LoadoutClass);
+			}
+			else
+			{
+				AddDestroyedByClass(Payload.EnemyDestroyedByClass, Line.LoadoutClass);
 			}
 		}
 		Payload.Lines.Add(Line);
@@ -329,7 +475,7 @@ void ABattlemap_TestCursorGameMode::TryPresentMissionDebrief()
 	}
 }
 
-void ABattlemap_TestCursorGameMode::SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, const bool bApplyEnemyTankPreset)
+void ABattlemap_TestCursorGameMode::SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, const bool bApplyEnemyTankPreset, const FString& LoadoutClass)
 {
 	UWorld* World = GetWorld();
 	if (!World || !UnitClass)
@@ -343,16 +489,19 @@ void ABattlemap_TestCursorGameMode::SpawnBattleUnit(const FVector& Location, con
 		return;
 	}
 
+	const int32 SpawnOrdinal = SpawnedUnits.Num();
+	Unit->MissionSpawnOrdinal = SpawnOrdinal;
 	Unit->UnitLabel = UnitName;
 	Unit->bFriendly = bFriendly;
 	Unit->UnitData.UnitId = FName(*UnitName);
 	Unit->UnitData.Category = Category;
 	Unit->UnitData.UnitType = Type;
+	Unit->UnitData.LoadoutClass = LoadoutClass;
 
-	if (bApplyEnemyTankPreset)
+	if (!bFriendly)
 	{
-		Unit->UnitData.MaxHealth = 500.0f;
-		Unit->CurrentHealth = 500.0f;
+		Unit->UnitData.MaxHealth = 400.0f;
+		Unit->CurrentHealth = 400.0f;
 	}
 	else if (bFriendly && Category == EUnitCategory::Infantry)
 	{

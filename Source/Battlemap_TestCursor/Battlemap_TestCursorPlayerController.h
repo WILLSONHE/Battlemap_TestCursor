@@ -122,6 +122,7 @@ protected:
 	void OnMouseXWhilePanning(float AxisValue);
 	void OnMouseYWhilePanning(float AxisValue);
 	void OnClearSelection();
+	void OnEscapeBattleMenu();
 	void OnMapViewLand();
 	void OnMapViewOcean();
 	void OnCycleDebugViewMode();

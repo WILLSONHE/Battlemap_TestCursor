@@ -358,10 +358,6 @@ void UBattleLoadoutSlotRowWidget::DeferredSetup(UBattleLoadoutScreenWidget* InOw
 
 void UBattleLoadoutSlotRowWidget::OnScaleChanged(FString SelectedItem, ESelectInfo::Type SelectInfo)
 {
-	if (SelectInfo == ESelectInfo::Direct)
-	{
-		return;
-	}
 	if (!Owner || !Owner->MirrorSlots.IsValidIndex(SlotIndex))
 	{
 		return;
@@ -369,6 +365,10 @@ void UBattleLoadoutSlotRowWidget::OnScaleChanged(FString SelectedItem, ESelectIn
 	const int32 MaxOrd = Owner->ComputeMaxAllowedScaleOrdinalForRow(SlotIndex);
 	const int32 O = FMath::Clamp(OrdinalFromScaleLabel(SelectedItem), 0, MaxOrd);
 	Owner->MirrorSlots[SlotIndex].UnitScale = static_cast<EFormationUnitScale>(O);
+	if (SelectInfo == ESelectInfo::Direct)
+	{
+		return;
+	}
 	Owner->RebuildList();
 }
 

@@ -338,6 +338,10 @@ struct FUnitBaseData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 StealthLevel = 0;
+
+	/** Loadout \u5206\u7c7b (for post-mission stats); optional. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString LoadoutClass;
 };
 
 USTRUCT(BlueprintType)

@@ -5,6 +5,7 @@
 #include "BattleLoadoutScreenWidget.h"
 #include "BattleSettingsWidget.h"
 #include "BattleMissionDebriefWidget.h"
+#include "BattlePauseMenuWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
 #include "Blueprint/UserWidget.h"
@@ -82,6 +83,10 @@ void UBattleGameInstance::Init()
 	if (!DebriefWidgetClass)
 	{
 		DebriefWidgetClass = UBattleMissionDebriefWidget::StaticClass();
+	}
+	if (!BattlePauseMenuClass)
+	{
+		BattlePauseMenuClass = UBattlePauseMenuWidget::StaticClass();
 	}
 }
 
@@ -233,21 +238,84 @@ void UBattleGameInstance::ShowLoadoutScreen(APlayerController* PC)
 	}
 }
 
-void UBattleGameInstance::ShowSettingsScreen(APlayerController* PC)
+void UBattleGameInstance::ShowSettingsScreen(APlayerController* PC, const bool bHideMenusBelow)
 {
 	if (!PC || !SettingsWidgetClass)
 	{
 		return;
 	}
 	SanitizeMenuStack();
-	HideStackedMenuWidgets();
+	if (bHideMenusBelow)
+	{
+		HideStackedMenuWidgets();
+	}
 	if (UUserWidget* W = CreateWidget<UUserWidget>(PC, SettingsWidgetClass))
 	{
-		W->AddToViewport(200);
+		W->AddToViewport(400);
 		MenuWidgetStack.Add(W);
 		FInputModeUIOnly Mode;
 		PC->SetInputMode(Mode);
 		PC->bShowMouseCursor = true;
+	}
+}
+
+void UBattleGameInstance::ShowBattlePauseMenu(APlayerController* PC)
+{
+	if (!PC || !BattlePauseMenuClass)
+	{
+		return;
+	}
+	SanitizeMenuStack();
+	if (UBattlePauseMenuWidget* W = CreateWidget<UBattlePauseMenuWidget>(PC, BattlePauseMenuClass))
+	{
+		W->AddToViewport(350);
+		MenuWidgetStack.Add(W);
+		if (UWorld* World = PC->GetWorld())
+		{
+			UGameplayStatics::SetGamePaused(World, true);
+		}
+		FInputModeUIOnly Mode;
+		PC->SetInputMode(Mode);
+		PC->bShowMouseCursor = true;
+	}
+}
+
+void UBattleGameInstance::HandleEscapeDuringBattle(APlayerController* PC)
+{
+	if (!PC)
+	{
+		return;
+	}
+	SanitizeMenuStack();
+	if (MenuWidgetStack.Num() > 0)
+	{
+		if (Cast<UBattleMissionDebriefWidget>(MenuWidgetStack.Last()))
+		{
+			return;
+		}
+		DismissTopMenuLayer(PC);
+		return;
+	}
+	ShowBattlePauseMenu(PC);
+}
+
+void UBattleGameInstance::ClearAllMenuWidgets(APlayerController* PC)
+{
+	SanitizeMenuStack();
+	while (MenuWidgetStack.Num() > 0)
+	{
+		if (UUserWidget* W = MenuWidgetStack.Pop())
+		{
+			if (IsValid(W))
+			{
+				W->RemoveFromParent();
+			}
+		}
+	}
+	if (PC)
+	{
+		PC->SetInputMode(FInputModeGameOnly());
+		PC->bShowMouseCursor = false;
 	}
 }
 

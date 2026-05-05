@@ -25,12 +25,16 @@ public:
 	ABattleUnit(const FObjectInitializer& ObjectInitializer);
 
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void BeginPlay() override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle")
 	FUnitBaseData UnitData;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle")
 	FString UnitLabel = TEXT("Unit");
+
+	/** Index in `ABattlemap_TestCursorGameMode::SpawnedUnits` at spawn; used for mission debrief matching. */
+	int32 MissionSpawnOrdinal = INDEX_NONE;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle")
 	float CurrentHealth = 100.0f;
@@ -148,6 +152,10 @@ protected:
 	void StartReload();
 
 	void UpdateMeshScaleVisual();
+	void UpdateUnitMeshFacingFromMovement();
+
+	void ApplyAliveCombatMesh();
+	void ApplyDestroyedPlaceholderMesh();
 
 	bool AcquireNextCommand();
 
@@ -165,6 +173,9 @@ protected:
 	FActiveCommand ActiveCommand;
 
 	bool bHasActiveCommand = false;
+	bool bDestroyedPlaceholderMeshApplied = false;
+	bool bMovementFacingAnchorInitialized = false;
+	FVector MovementFacingAnchor = FVector::ZeroVector;
 	bool bSelected = false;
 	float AttackCooldownRemaining = 0.0f;
 	float HoverCircleScale = 1.35f;

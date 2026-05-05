@@ -17,6 +17,12 @@
 #include "EngineUtils.h"
 #include "TacticalMapGrid.h"
 
+namespace BattleUnitMeshPaths
+{
+	static const TCHAR* AliveTankAsset = TEXT("/Game/ActualContent/SM_Tank.SM_Tank");
+	static const TCHAR* DestroyedPlaceholderCube = TEXT("/Engine/BasicShapes/Cube.Cube");
+}
+
 ABattleUnit::ABattleUnit(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -62,6 +68,46 @@ ABattleUnit::ABattleUnit(const FObjectInitializer& ObjectInitializer)
 		EcmZone->JamRadiusUU = 0.0f;
 		EcmZone->bAffectsFriendliesOnly = true;
 	}
+}
+
+void ABattleUnit::BeginPlay()
+{
+	Super::BeginPlay();
+	MovementFacingAnchor = GetActorLocation();
+	bMovementFacingAnchorInitialized = true;
+	if (IsAlive())
+	{
+		ApplyAliveCombatMesh();
+	}
+	else
+	{
+		ApplyDestroyedPlaceholderMesh();
+	}
+}
+
+void ABattleUnit::ApplyAliveCombatMesh()
+{
+	if (!UnitMesh)
+	{
+		return;
+	}
+	if (UStaticMesh* TankMesh = LoadObject<UStaticMesh>(nullptr, BattleUnitMeshPaths::AliveTankAsset))
+	{
+		UnitMesh->SetStaticMesh(TankMesh);
+	}
+}
+
+void ABattleUnit::ApplyDestroyedPlaceholderMesh()
+{
+	if (!UnitMesh || bDestroyedPlaceholderMeshApplied)
+	{
+		return;
+	}
+	if (UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, BattleUnitMeshPaths::DestroyedPlaceholderCube))
+	{
+		UnitMesh->SetStaticMesh(CubeMesh);
+	}
+	bDestroyedPlaceholderMeshApplied = true;
 }
 
 void ABattleUnit::Tick(float DeltaSeconds)
@@ -116,7 +162,56 @@ void ABattleUnit::Tick(float DeltaSeconds)
 		SupplyComponent->ConsumeForUnitType(UnitData.Category, bRoadConnected, DeltaSeconds);
 	}
 
+	UpdateUnitMeshFacingFromMovement();
 	UpdateMeshScaleVisual();
+}
+
+void ABattleUnit::UpdateUnitMeshFacingFromMovement()
+{
+	if (!UnitMesh || bDestroyedPlaceholderMeshApplied)
+	{
+		return;
+	}
+	FVector2D FacingDir2D(0.f, 0.f);
+	bool bHaveFacing = false;
+
+	if (AttackTarget && AttackTarget->IsAlive())
+	{
+		const FVector2D ToTarget(
+			AttackTarget->GetActorLocation().X - GetActorLocation().X,
+			AttackTarget->GetActorLocation().Y - GetActorLocation().Y);
+		if (ToTarget.SizeSquared() > KINDA_SMALL_NUMBER)
+		{
+			FacingDir2D = ToTarget.GetSafeNormal();
+			bHaveFacing = true;
+		}
+		MovementFacingAnchor = GetActorLocation();
+	}
+	else
+	{
+		const FVector Post = GetActorLocation();
+		if (!bMovementFacingAnchorInitialized)
+		{
+			MovementFacingAnchor = Post;
+			bMovementFacingAnchorInitialized = true;
+			return;
+		}
+		const FVector2D D(Post.X - MovementFacingAnchor.X, Post.Y - MovementFacingAnchor.Y);
+		MovementFacingAnchor = Post;
+		if (D.SizeSquared() >= 4.f)
+		{
+			FacingDir2D = D.GetSafeNormal();
+			bHaveFacing = true;
+		}
+	}
+
+	if (!bHaveFacing)
+	{
+		return;
+	}
+	// Tank asset: local +Y is forward, +X is lateral; align +Y with horizontal aim / velocity.
+	const float WorldYawDeg = FMath::RadiansToDegrees(FMath::Atan2(FacingDir2D.Y, FacingDir2D.X)) - 90.f;
+	UnitMesh->SetWorldRotation(FRotator(0.f, WorldYawDeg, 0.f));
 }
 
 void ABattleUnit::ApplyDamageValue(float DamageValue)
@@ -128,6 +223,7 @@ void ABattleUnit::ApplyDamageValue(float DamageValue)
 	{
 		RuntimeState = EUnitRuntimeState::Dead;
 		LastCombatEvent = FString::Printf(TEXT("%s 已被击毁。"), *UnitLabel);
+		ApplyDestroyedPlaceholderMesh();
 	}
 }
 
@@ -858,6 +954,11 @@ void ABattleUnit::UpdateMeshScaleVisual()
 	if (HitFlashRemaining > 0.0f)
 	{
 		BaseScale *= 1.1f;
+	}
+
+	if (!bDestroyedPlaceholderMeshApplied)
+	{
+		BaseScale *= 0.25f;
 	}
 
 	UnitMesh->SetWorldScale3D(BaseScale);

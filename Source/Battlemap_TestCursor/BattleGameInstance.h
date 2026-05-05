@@ -12,7 +12,6 @@ class UBattleMainMenuWidget;
 class UBattleLoadoutScreenWidget;
 class UBattleSettingsWidget;
 class UBattleMissionDebriefWidget;
-
 UCLASS()
 class BATTLEMAP_TESTCURSOR_API UBattleGameInstance : public UGameInstance
 {
@@ -33,6 +32,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Battle|UI")
 	TSubclassOf<UUserWidget> DebriefWidgetClass;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Battle|UI")
+	TSubclassOf<UUserWidget> BattlePauseMenuClass;
+
 	UBattleCareerSaveGame* GetCareerSave();
 
 	void LoadCareerFromDisk();
@@ -42,8 +44,12 @@ public:
 
 	void ShowMainMenu(APlayerController* PC);
 	void ShowLoadoutScreen(APlayerController* PC);
-	void ShowSettingsScreen(APlayerController* PC);
+	void ShowSettingsScreen(APlayerController* PC, bool bHideMenusBelow = true);
 	void ShowMissionDebrief(APlayerController* PC, const FMissionDebriefPayload& Payload);
+
+	void ShowBattlePauseMenu(APlayerController* PC);
+	void HandleEscapeDuringBattle(APlayerController* PC);
+	void ClearAllMenuWidgets(APlayerController* PC);
 
 	void DismissTopMenuLayer(APlayerController* PC);
 

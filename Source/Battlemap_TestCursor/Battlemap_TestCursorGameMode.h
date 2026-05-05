@@ -57,6 +57,15 @@ protected:
 	TSubclassOf<ABattleUnit> FriendlyVehicleUnitClass;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
+	TSubclassOf<ABattleUnit> FriendlyNavalSurfaceClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
+	TSubclassOf<ABattleUnit> FriendlySubmarineClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
+	TSubclassOf<ABattleUnit> FriendlyAircraftClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
 	TSubclassOf<ABattleUnit> EnemyUnitClass;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
@@ -96,7 +105,9 @@ protected:
 
 	void SpawnTestEnvironment();
 
-	void SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, bool bApplyEnemyTankPreset);
+	void SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, bool bApplyEnemyTankPreset, const FString& LoadoutClass = FString());
+
+	TSubclassOf<ABattleUnit> PickClassForLoadoutSlot(const FPlayerLoadoutSlot& Slot) const;
 
 	void CaptureMissionStartSnapshots();
 

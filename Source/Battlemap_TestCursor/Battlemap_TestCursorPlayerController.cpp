@@ -20,6 +20,7 @@
 #include "BattleSupplyComponent.h"
 #include "BattleTypes.h"
 #include "Battlemap_TestCursorGameMode.h"
+#include "BattleGameInstance.h"
 #include "BattleBalanceTableTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/HitResult.h"
@@ -35,6 +36,8 @@ DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
 ABattlemap_TestCursorPlayerController::ABattlemap_TestCursorPlayerController()
 {
+	PrimaryActorTick.bTickEvenWhenPaused = true;
+	bShouldPerformFullTickWhenPaused = true;
 	bShowMouseCursor = true;
 	DefaultMouseCursor = EMouseCursor::Default;
 	CachedDestination = FVector::ZeroVector;
@@ -314,7 +317,7 @@ void ABattlemap_TestCursorPlayerController::SetupInputComponent()
 		InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnRightMousePressed);
 		InputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnRightMouseReleased);
 		InputComponent->BindKey(EKeys::Q, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnToggleCommsTriggered);
-		InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnClearSelection);
+		InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnEscapeBattleMenu);
 		InputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnZoomIn);
 		InputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnZoomOut);
 		InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnRotatePressed);
@@ -998,6 +1001,14 @@ void ABattlemap_TestCursorPlayerController::OnMouseYWhilePanning(float AxisValue
 void ABattlemap_TestCursorPlayerController::OnClearSelection()
 {
 	ClearSelectionInternal(true);
+}
+
+void ABattlemap_TestCursorPlayerController::OnEscapeBattleMenu()
+{
+	if (UBattleGameInstance* GI = Cast<UBattleGameInstance>(GetGameInstance()))
+	{
+		GI->HandleEscapeDuringBattle(this);
+	}
 }
 
 void ABattlemap_TestCursorPlayerController::OnMapViewLand()
