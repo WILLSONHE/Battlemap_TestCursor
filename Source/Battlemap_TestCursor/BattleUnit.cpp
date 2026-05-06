@@ -40,15 +40,15 @@ ABattleUnit::ABattleUnit(const FObjectInitializer& ObjectInitializer)
 	UnitMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	UnitMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	UnitMesh->SetMobility(EComponentMobility::Movable);
-	UnitMesh->SetCastShadow(false);
-	UnitMesh->bCastDynamicShadow = false;
-	UnitMesh->bCastStaticShadow = false;
+	UnitMesh->SetCastShadow(true);
+	UnitMesh->bCastDynamicShadow = true;
+	UnitMesh->bCastStaticShadow = true;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeMesh.Succeeded())
 	{
 		UnitMesh->SetStaticMesh(CubeMesh.Object);
-		UnitMesh->SetWorldScale3D(FVector(0.8f, 0.8f, 0.25f));
+		UnitMesh->SetWorldScale3D(FVector(0.25f));
 	}
 
 	SetActorEnableCollision(true);
@@ -242,8 +242,7 @@ void ABattleUnit::SetSelected(bool bInSelected)
 	}
 
 	UnitMesh->SetRenderCustomDepth(bSelected);
-	const FVector Scale = bSelected ? FVector(0.95f, 0.95f, 0.3f) : FVector(0.8f, 0.8f, 0.25f);
-	UnitMesh->SetWorldScale3D(Scale);
+	UpdateMeshScaleVisual();
 
 	if (MoveCommandMarker)
 	{
@@ -945,7 +944,9 @@ void ABattleUnit::UpdateMeshScaleVisual()
 		return;
 	}
 
-	FVector BaseScale = bSelected ? FVector(0.95f, 0.95f, 0.3f) : FVector(0.8f, 0.8f, 0.25f);
+	// Uniform scale; selection does not change model size.
+	const float Core = 0.22f;
+	FVector BaseScale = FVector(Core);
 	if (RuntimeState == EUnitRuntimeState::Dead)
 	{
 		BaseScale *= 0.75f;
@@ -954,11 +955,6 @@ void ABattleUnit::UpdateMeshScaleVisual()
 	if (HitFlashRemaining > 0.0f)
 	{
 		BaseScale *= 1.1f;
-	}
-
-	if (!bDestroyedPlaceholderMeshApplied)
-	{
-		BaseScale *= 0.25f;
 	}
 
 	UnitMesh->SetWorldScale3D(BaseScale);

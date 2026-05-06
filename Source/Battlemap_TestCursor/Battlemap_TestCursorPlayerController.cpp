@@ -20,6 +20,9 @@
 #include "BattleSupplyComponent.h"
 #include "BattleTypes.h"
 #include "Battlemap_TestCursorGameMode.h"
+#include "BattleLoadoutScreenWidget.h"
+#include "BattleOrbatBattleWidget.h"
+#include "BattleDeploymentEntryActor.h"
 #include "BattleGameInstance.h"
 #include "BattleBalanceTableTypes.h"
 #include "Engine/Engine.h"
@@ -104,12 +107,30 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 	float MouseX = 0.0f;
 	float MouseY = 0.0f;
 
-	if (!FMath::IsNearlyZero(KeyboardForwardInput) || !FMath::IsNearlyZero(KeyboardRightInput))
+	// Sample keys each frame so pan stops when keys are up even if a Released event was missed (focus/UI).
+	float ForwardAxis = 0.0f;
+	if (IsInputKeyDown(EKeys::W))
+	{
+		ForwardAxis += 1.0f;
+	}
+	if (IsInputKeyDown(EKeys::S))
+	{
+		ForwardAxis -= 1.0f;
+	}
+	float RightAxis = 0.0f;
+	if (IsInputKeyDown(EKeys::D))
+	{
+		RightAxis += 1.0f;
+	}
+	if (IsInputKeyDown(EKeys::A))
+	{
+		RightAxis -= 1.0f;
+	}
+	if (!FMath::IsNearlyZero(ForwardAxis) || !FMath::IsNearlyZero(RightAxis))
 	{
 		if (ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
 		{
-			const FVector2D KeyboardPanInput(KeyboardRightInput, KeyboardForwardInput);
-			BattleCharacter->PanCamera(KeyboardPanInput, KeyboardPanSpeed);
+			BattleCharacter->PanCamera(FVector2D(RightAxis, ForwardAxis), KeyboardPanSpeed);
 		}
 	}
 
@@ -155,6 +176,10 @@ void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 		if (!bIsBoxSelecting && FVector2D::Distance(SelectionBoxStart, SelectionBoxEnd) >= SelectionDragThreshold)
 		{
 			bIsBoxSelecting = true;
+		}
+		if (bIsBoxSelecting)
+		{
+			RefreshBoxSelectionHighlight();
 		}
 	}
 
@@ -323,14 +348,6 @@ void ABattlemap_TestCursorPlayerController::SetupInputComponent()
 		InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnRotatePressed);
 		InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnRotateReleased);
 		InputComponent->BindAxisKey(EKeys::MouseX, this, &ABattlemap_TestCursorPlayerController::OnRotateAxis);
-		InputComponent->BindKey(EKeys::W, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveForwardPressed);
-		InputComponent->BindKey(EKeys::W, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveForwardReleased);
-		InputComponent->BindKey(EKeys::S, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveBackwardPressed);
-		InputComponent->BindKey(EKeys::S, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveBackwardReleased);
-		InputComponent->BindKey(EKeys::D, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveRightPressed);
-		InputComponent->BindKey(EKeys::D, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveRightReleased);
-		InputComponent->BindKey(EKeys::A, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnMoveLeftPressed);
-		InputComponent->BindKey(EKeys::A, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnMoveLeftReleased);
 		InputComponent->BindKey(EKeys::LeftAlt, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnAltPressed);
 		InputComponent->BindKey(EKeys::LeftAlt, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnAltReleased);
 		InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnFocusSelectedUnit);
@@ -414,6 +431,22 @@ void ABattlemap_TestCursorPlayerController::OnLeftMouseReleased()
 		UpdateBoxSelection();
 		bIsBoxSelecting = false;
 		return;
+	}
+
+	FHitResult DeployHit;
+	if (GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, DeployHit))
+	{
+		if (ABattleDeploymentEntryActor* Entry = Cast<ABattleDeploymentEntryActor>(DeployHit.GetActor()))
+		{
+			if (UWorld* W = GetWorld())
+			{
+				if (ABattlemap_TestCursorGameMode* GM = W->GetAuthGameMode<ABattlemap_TestCursorGameMode>())
+				{
+					GM->HandleDeploymentEntryClicked(Entry, this);
+				}
+			}
+			return;
+		}
 	}
 
 	UpdateSelectionFromCursor();
@@ -520,9 +553,24 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 
 	int32 IssuedCount = 0;
 	int32 SkippedAttackNoCommsCount = 0;
+	int32 SkippedOrbatPriorityCount = 0;
 	int32 MovePathFailedCount = 0;
 	FVector2D FormationForward = FVector2D::ZeroVector;
 	FVector FormationOrigin = CachedDestination;
+
+	const ABattlemap_TestCursorGameMode* BattleGM = GetWorld() ? Cast<ABattlemap_TestCursorGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
+	const TArray<FPlayerLoadoutSlot>* LoadoutSlots = BattleGM ? &BattleGM->GetCachedBattleLoadoutSlots() : nullptr;
+	const int32 IssuerTipSlot = DeploymentOrbatTipSlotIndex;
+
+	auto ShouldSkipForOrbatCommandPriority = [&](ABattleUnit* Unit) -> bool
+	{
+		if (!LoadoutSlots || !Unit || IssuerTipSlot == INDEX_NONE || Unit->CommandLockIssuerSlotIndex == INDEX_NONE)
+		{
+			return false;
+		}
+		return UBattleLoadoutScreenWidget::IsOrbatSlotStrictlyUnderParent(IssuerTipSlot, Unit->CommandLockIssuerSlotIndex, *LoadoutSlots);
+	};
+
 	if (!bAttackCommand)
 	{
 		FVector GroupCenter = FVector::ZeroVector;
@@ -559,35 +607,67 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 		}
 	}
 
-	for (ABattleUnit* Unit : SelectedUnits)
+	if (bAttackCommand)
 	{
-		if (!Unit || !Unit->CommandComponent)
+		for (ABattleUnit* Unit : SelectedUnits)
 		{
-			continue;
-		}
+			if (!Unit || !Unit->CommandComponent)
+			{
+				continue;
+			}
 
-		if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
-		{
-			if (bAttackCommand)
+			if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
 			{
 				SkippedAttackNoCommsCount++;
+				continue;
 			}
-			continue;
+
+			if (ShouldSkipForOrbatCommandPriority(Unit))
+			{
+				SkippedOrbatPriorityCount++;
+				continue;
+			}
+
+			Unit->IssueAttackCommandInterrupt(ClickedUnit, ECommandPriority::High);
+			Unit->CommandLockIssuerSlotIndex = IssuerTipSlot != INDEX_NONE ? IssuerTipSlot : INDEX_NONE;
+			++IssuedCount;
+		}
+	}
+	else
+	{
+		TArray<ABattleUnit*> MoveRecipients;
+		MoveRecipients.Reserve(SelectedUnits.Num());
+		for (ABattleUnit* Unit : SelectedUnits)
+		{
+			if (!Unit || !Unit->CommandComponent)
+			{
+				continue;
+			}
+
+			if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
+			{
+				continue;
+			}
+
+			if (ShouldSkipForOrbatCommandPriority(Unit))
+			{
+				SkippedOrbatPriorityCount++;
+				continue;
+			}
+
+			MoveRecipients.Add(Unit);
 		}
 
-		if (bAttackCommand)
+		const int32 RecipientCount = MoveRecipients.Num();
+		for (int32 Idx = 0; Idx < RecipientCount; ++Idx)
 		{
-			Unit->IssueAttackCommandInterrupt(ClickedUnit, ECommandPriority::High);
-		}
-		else
-		{
+			ABattleUnit* Unit = MoveRecipients[Idx];
 			FVector MoveTarget = FormationOrigin;
-			if (bEnableFormationMove && SelectedUnits.Num() > 1)
+			if (bEnableFormationMove && RecipientCount > 1)
 			{
-				const int32 SlotIndex = IssuedCount;
-				const int32 ColumnCount = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(SelectedUnits.Num())));
-				const int32 RowIndex = SlotIndex / FMath::Max(1, ColumnCount);
-				const int32 ColIndex = SlotIndex % FMath::Max(1, ColumnCount);
+				const int32 ColumnCount = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(RecipientCount)));
+				const int32 RowIndex = Idx / FMath::Max(1, ColumnCount);
+				const int32 ColIndex = Idx % FMath::Max(1, ColumnCount);
 				const float CenteredCol = static_cast<float>(ColIndex) - (static_cast<float>(ColumnCount - 1) * 0.5f);
 				const FVector2D Forward = FormationForward.GetSafeNormal();
 				const FVector2D Right(Forward.Y, -Forward.X);
@@ -600,10 +680,18 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 				MovePathFailedCount++;
 				continue;
 			}
+			Unit->CommandLockIssuerSlotIndex = IssuerTipSlot != INDEX_NONE ? IssuerTipSlot : INDEX_NONE;
+			++IssuedCount;
 		}
-
-		++IssuedCount;
 	}
+
+	auto AppendOrbatPriorityHint = [&](FString& Msg)
+	{
+		if (SkippedOrbatPriorityCount > 0)
+		{
+			Msg += FString::Printf(TEXT(" %d 个单位保留更优先的下级命令。"), SkippedOrbatPriorityCount);
+		}
+	};
 
 	if (bAttackCommand)
 	{
@@ -613,32 +701,42 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 		{
 			Msg += FString::Printf(TEXT(" %d 个单位因通讯不可用未下达。"), SkippedAttackNoCommsCount);
 		}
+		AppendOrbatPriorityHint(Msg);
 		SetStatusHint(Msg);
 	}
 	else
 	{
 		if (MovePathFailedCount > 0 && IssuedCount == 0)
 		{
-			SetStatusHint(TEXT("没有可靠通行路径"));
+			FString Msg(TEXT("没有可靠通行路径"));
+			AppendOrbatPriorityHint(Msg);
+			SetStatusHint(Msg);
 		}
 		else if (MovePathFailedCount > 0)
 		{
+			FString Msg;
 			if (bEnableFormationMove && IssuedCount > 1)
 			{
-				SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount));
+				Msg = FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount);
 			}
 			else
 			{
-				SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount));
+				Msg = FString::Printf(TEXT("已向 %d 个单位下达移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount);
 			}
+			AppendOrbatPriorityHint(Msg);
+			SetStatusHint(Msg);
 		}
 		else if (bEnableFormationMove && IssuedCount > 1)
 		{
-			SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。"), IssuedCount));
+			FString Msg = FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。"), IssuedCount);
+			AppendOrbatPriorityHint(Msg);
+			SetStatusHint(Msg);
 		}
 		else
 		{
-			SetStatusHint(FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount));
+			FString Msg = FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount);
+			AppendOrbatPriorityHint(Msg);
+			SetStatusHint(Msg);
 		}
 	}
 }
@@ -685,7 +783,7 @@ void ABattlemap_TestCursorPlayerController::SetSelectedUnit(ABattleUnit* InSelec
 	SetSelectedUnits(NewSelection);
 }
 
-void ABattlemap_TestCursorPlayerController::SetSelectedUnits(const TArray<ABattleUnit*>& InSelectedUnits)
+void ABattlemap_TestCursorPlayerController::SetSelectedUnits(const TArray<ABattleUnit*>& InSelectedUnits, bool bUpdateOrbatTipFromSelection)
 {
 	for (ABattleUnit* Unit : SelectedUnits)
 	{
@@ -713,6 +811,58 @@ void ABattlemap_TestCursorPlayerController::SetSelectedUnits(const TArray<ABattl
 	}
 
 	SelectedUnit = SelectedUnits.Num() > 0 ? SelectedUnits[0] : nullptr;
+
+	if (bUpdateOrbatTipFromSelection)
+	{
+		if (SelectedUnits.Num() == 1 && SelectedUnits[0] && SelectedUnits[0]->bFriendly && SelectedUnits[0]->SourceLoadoutSlotIndex != INDEX_NONE)
+		{
+			SetDeploymentOrbatTipSlot(SelectedUnits[0]->SourceLoadoutSlotIndex);
+		}
+		else if (SelectedUnits.Num() == 0)
+		{
+			SetDeploymentOrbatTipSlot(INDEX_NONE);
+		}
+		else
+		{
+			SetDeploymentOrbatTipSlot(INDEX_NONE);
+		}
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::SetDeploymentSquadSlotSelection(const TArray<int32>& Indices)
+{
+	DeploymentSquadSlotSelection = Indices;
+}
+
+void ABattlemap_TestCursorPlayerController::SetDeploymentOrbatTipSlot(int32 SlotIndex)
+{
+	DeploymentOrbatTipSlotIndex = SlotIndex;
+}
+
+void ABattlemap_TestCursorPlayerController::NotifyDeploymentHint(const FString& Msg)
+{
+	SetStatusHint(Msg);
+}
+
+void ABattlemap_TestCursorPlayerController::RefreshWorldSelectionForDeploymentSlots()
+{
+	TArray<ABattleUnit*> Units;
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<ABattleUnit> It(World); It; ++It)
+		{
+			ABattleUnit* U = *It;
+			if (!U || !U->bFriendly || !U->IsAlive())
+			{
+				continue;
+			}
+			if (DeploymentSquadSlotSelection.Contains(U->SourceLoadoutSlotIndex))
+			{
+				Units.Add(U);
+			}
+		}
+	}
+	SetSelectedUnits(Units, false);
 }
 
 FDebugBattleSnapshot ABattlemap_TestCursorPlayerController::BuildDebugSnapshot() const
@@ -826,17 +976,17 @@ void ABattlemap_TestCursorPlayerController::UpdateSelectionFromCursor()
 	SetStatusHint(TEXT("已取消选择，并记录新的地面目标点。"));
 }
 
-void ABattlemap_TestCursorPlayerController::UpdateBoxSelection()
+TArray<ABattleUnit*> ABattlemap_TestCursorPlayerController::GatherFriendlyUnitsInScreenRect(const FVector2D& RectA, const FVector2D& RectB)
 {
+	TArray<ABattleUnit*> BoxSelectedUnits;
 	UWorld* World = GetWorld();
 	if (!World)
 	{
-		return;
+		return BoxSelectedUnits;
 	}
 
-	const FVector2D Min(FMath::Min(SelectionBoxStart.X, SelectionBoxEnd.X), FMath::Min(SelectionBoxStart.Y, SelectionBoxEnd.Y));
-	const FVector2D Max(FMath::Max(SelectionBoxStart.X, SelectionBoxEnd.X), FMath::Max(SelectionBoxStart.Y, SelectionBoxEnd.Y));
-	TArray<ABattleUnit*> BoxSelectedUnits;
+	const FVector2D Min(FMath::Min(RectA.X, RectB.X), FMath::Min(RectA.Y, RectB.Y));
+	const FVector2D Max(FMath::Max(RectA.X, RectB.X), FMath::Max(RectA.Y, RectB.Y));
 
 	for (TActorIterator<ABattleUnit> It(World); It; ++It)
 	{
@@ -859,13 +1009,37 @@ void ABattlemap_TestCursorPlayerController::UpdateBoxSelection()
 		}
 	}
 
+	return BoxSelectedUnits;
+}
+
+void ABattlemap_TestCursorPlayerController::RefreshBoxSelectionHighlight()
+{
+	const TArray<ABattleUnit*> BoxSelectedUnits = GatherFriendlyUnitsInScreenRect(SelectionBoxStart, SelectionBoxEnd);
+	SetSelectedUnits(BoxSelectedUnits);
+}
+
+void ABattlemap_TestCursorPlayerController::UpdateBoxSelection()
+{
+	const TArray<ABattleUnit*> BoxSelectedUnits = GatherFriendlyUnitsInScreenRect(SelectionBoxStart, SelectionBoxEnd);
 	SetSelectedUnits(BoxSelectedUnits);
 	SetStatusHint(FString::Printf(TEXT("框选到 %d 个单位。"), SelectedUnits.Num()));
 }
 
 void ABattlemap_TestCursorPlayerController::ClearSelectionInternal(bool bClearHint)
 {
-	SetSelectedUnits(TArray<ABattleUnit*>());
+	SetDeploymentSquadSlotSelection(TArray<int32>());
+	SetDeploymentOrbatTipSlot(INDEX_NONE);
+	SetSelectedUnits(TArray<ABattleUnit*>(), false);
+	if (UWorld* World = GetWorld())
+	{
+		if (ABattlemap_TestCursorGameMode* GM = Cast<ABattlemap_TestCursorGameMode>(World->GetAuthGameMode()))
+		{
+			if (UBattleOrbatBattleWidget* OrbatW = GM->GetBattleOrbatBattleWidget())
+			{
+				OrbatW->ResetOrbatNavUIOnly();
+			}
+		}
+	}
 	if (bClearHint)
 	{
 		SetStatusHint(TEXT("已清除当前选中单位。"));
@@ -936,46 +1110,6 @@ void ABattlemap_TestCursorPlayerController::OnFocusSelectedUnit()
 			SetStatusHint(TEXT("镜头角度已重置。"));
 		}
 	}
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveForwardPressed()
-{
-	KeyboardForwardInput += 1.0f;
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveForwardReleased()
-{
-	KeyboardForwardInput -= 1.0f;
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveBackwardPressed()
-{
-	KeyboardForwardInput -= 1.0f;
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveBackwardReleased()
-{
-	KeyboardForwardInput += 1.0f;
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveRightPressed()
-{
-	KeyboardRightInput += 1.0f;
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveRightReleased()
-{
-	KeyboardRightInput -= 1.0f;
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveLeftPressed()
-{
-	KeyboardRightInput -= 1.0f;
-}
-
-void ABattlemap_TestCursorPlayerController::OnMoveLeftReleased()
-{
-	KeyboardRightInput += 1.0f;
 }
 
 void ABattlemap_TestCursorPlayerController::OnAltPressed()

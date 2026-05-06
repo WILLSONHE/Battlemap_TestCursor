@@ -118,6 +118,13 @@ void UBattleMainMenuWidget::BuildNativeMainMenuIfNeeded()
 
 void UBattleMainMenuWidget::OnStartGameClicked()
 {
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (UBattleGameInstance* GI = Cast<UBattleGameInstance>(PC->GetGameInstance()))
+		{
+			GI->ClearMenuStackForLevelTravel(PC);
+		}
+	}
 	UGameplayStatics::OpenLevel(this, FName(TEXT("L_TestMinimal")));
 }
 

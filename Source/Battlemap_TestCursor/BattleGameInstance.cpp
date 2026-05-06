@@ -344,6 +344,40 @@ UBattleCareerSaveGame* UBattleGameInstance::GetCareerSave()
 	return CareerSave;
 }
 
+void UBattleGameInstance::ApplyBattleGameplayInputMode(APlayerController* PC)
+{
+	if (!PC)
+	{
+		return;
+	}
+	FInputModeGameAndUI InputMode;
+	InputMode.SetHideCursorDuringCapture(false);
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PC->SetInputMode(InputMode);
+	PC->bShowMouseCursor = true;
+	PC->bEnableClickEvents = true;
+	PC->bEnableMouseOverEvents = true;
+}
+
+void UBattleGameInstance::ClearMenuStackForLevelTravel(APlayerController* PC)
+{
+	SanitizeMenuStack();
+	while (MenuWidgetStack.Num() > 0)
+	{
+		if (UUserWidget* W = MenuWidgetStack.Pop())
+		{
+			if (IsValid(W))
+			{
+				W->RemoveFromParent();
+			}
+		}
+	}
+	if (PC && PC->GetWorld())
+	{
+		UGameplayStatics::SetGamePaused(PC->GetWorld(), false);
+	}
+}
+
 void UBattleGameInstance::DismissTopMenuLayer(APlayerController* PC)
 {
 	if (MenuWidgetStack.Num() == 0)
@@ -366,8 +400,7 @@ void UBattleGameInstance::DismissTopMenuLayer(APlayerController* PC)
 
 	if (MenuWidgetStack.Num() == 0 && PC)
 	{
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
+		ApplyBattleGameplayInputMode(PC);
 	}
 	else if (MenuWidgetStack.Num() > 0 && PC)
 	{

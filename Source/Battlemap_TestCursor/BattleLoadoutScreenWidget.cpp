@@ -627,3 +627,115 @@ void UBattleLoadoutScreenWidget::OnBackClicked()
 		}
 	}
 }
+
+namespace BattleOrbatStatic
+{
+	static bool LoadoutSlotHasChildLocal(int32 SlotIdx, const TArray<FPlayerLoadoutSlot>& Slots)
+	{
+		for (int32 j = 0; j < Slots.Num(); ++j)
+		{
+			if (Slots[j].ParentSlotIndex == SlotIdx)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static bool SquadEligibleLocal(const FPlayerLoadoutSlot& Slot, const TArray<FPlayerLoadoutSlot>& Slots)
+	{
+		const int32 P = Slot.ParentSlotIndex;
+		if (P == INDEX_NONE || !Slots.IsValidIndex(P))
+		{
+			return false;
+		}
+		return Slots[P].UnitScale != EFormationUnitScale::Squad;
+	}
+
+	static void CollectSquadsRecursive(int32 Idx, const TArray<FPlayerLoadoutSlot>& Slots, TArray<int32>& Out)
+	{
+		if (!Slots.IsValidIndex(Idx))
+		{
+			return;
+		}
+		const FPlayerLoadoutSlot& S = Slots[Idx];
+		if (S.UnitScale == EFormationUnitScale::Squad)
+		{
+			if (S.bEnabled && !LoadoutSlotHasChildLocal(Idx, Slots) && SquadEligibleLocal(S, Slots))
+			{
+				Out.Add(Idx);
+			}
+			return;
+		}
+		TArray<int32> Ch;
+		for (int32 j = 0; j < Slots.Num(); ++j)
+		{
+			if (Slots[j].ParentSlotIndex == Idx)
+			{
+				Ch.Add(j);
+			}
+		}
+		Ch.Sort();
+		for (int32 C : Ch)
+		{
+			CollectSquadsRecursive(C, Slots, Out);
+		}
+	}
+}
+
+TArray<int32> UBattleLoadoutScreenWidget::GetOrbatRootIndices(const TArray<FPlayerLoadoutSlot>& Slots)
+{
+	TArray<int32> Roots;
+	for (int32 i = 0; i < Slots.Num(); ++i)
+	{
+		const int32 P = Slots[i].ParentSlotIndex;
+		if (P == INDEX_NONE || !Slots.IsValidIndex(P))
+		{
+			Roots.Add(i);
+		}
+	}
+	Roots.Sort();
+	return Roots;
+}
+
+TArray<int32> UBattleLoadoutScreenWidget::GetOrbatChildIndices(int32 ParentSlotIndex, const TArray<FPlayerLoadoutSlot>& Slots)
+{
+	TArray<int32> Children;
+	for (int32 j = 0; j < Slots.Num(); ++j)
+	{
+		if (Slots[j].ParentSlotIndex == ParentSlotIndex)
+		{
+			Children.Add(j);
+		}
+	}
+	Children.Sort();
+	return Children;
+}
+
+bool UBattleLoadoutScreenWidget::IsOrbatSlotStrictlyUnderParent(int32 ParentSlotIndex, int32 ChildSlotIndex, const TArray<FPlayerLoadoutSlot>& Slots)
+{
+	if (ParentSlotIndex == INDEX_NONE || ChildSlotIndex == INDEX_NONE || ParentSlotIndex == ChildSlotIndex)
+	{
+		return false;
+	}
+	int32 Walk = ChildSlotIndex;
+	while (Slots.IsValidIndex(Walk))
+	{
+		Walk = Slots[Walk].ParentSlotIndex;
+		if (Walk == ParentSlotIndex)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UBattleLoadoutScreenWidget::CollectEligibleBattleSquadsUnder(int32 SubtreeRootSlotIndex, const TArray<FPlayerLoadoutSlot>& Slots, TArray<int32>& OutSquads)
+{
+	OutSquads.Reset();
+	if (!Slots.IsValidIndex(SubtreeRootSlotIndex))
+	{
+		return;
+	}
+	BattleOrbatStatic::CollectSquadsRecursive(SubtreeRootSlotIndex, Slots, OutSquads);
+}

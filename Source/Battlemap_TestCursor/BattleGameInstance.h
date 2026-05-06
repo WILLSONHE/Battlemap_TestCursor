@@ -53,6 +53,12 @@ public:
 
 	void DismissTopMenuLayer(APlayerController* PC);
 
+	/** Remove all stacked UI and unpause; call before OpenLevel from debrief/travel so ESC is not blocked by stale stack. */
+	void ClearMenuStackForLevelTravel(APlayerController* PC);
+
+	/** Match ABattlemap_TestCursorPlayerController::BeginPlay — cursor visible during top-down gameplay. */
+	static void ApplyBattleGameplayInputMode(APlayerController* PC);
+
 	/** Cumulative XP thresholds for rank index (last entry is max rank cap). */
 	static int32 GetExperienceForRank(int32 RankIndex);
 	static FString GetRankDisplayName(int32 RankIndex);

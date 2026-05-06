@@ -11,6 +11,8 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/Widget.h"
+#include "BattleGameInstance.h"
+#include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 
 namespace
@@ -152,10 +154,24 @@ void UBattleMissionDebriefWidget::SetupDebrief(const FMissionDebriefPayload& Pay
 
 void UBattleMissionDebriefWidget::OnReturnToMainMenu()
 {
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (UBattleGameInstance* GI = Cast<UBattleGameInstance>(PC->GetGameInstance()))
+		{
+			GI->ClearMenuStackForLevelTravel(PC);
+		}
+	}
 	UGameplayStatics::OpenLevel(this, FName(TEXT("L_MainMenu")));
 }
 
 void UBattleMissionDebriefWidget::OnRematch()
 {
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (UBattleGameInstance* GI = Cast<UBattleGameInstance>(PC->GetGameInstance()))
+		{
+			GI->ClearMenuStackForLevelTravel(PC);
+		}
+	}
 	UGameplayStatics::OpenLevel(this, FName(TEXT("L_TestMinimal")));
 }

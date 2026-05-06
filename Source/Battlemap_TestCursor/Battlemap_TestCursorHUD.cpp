@@ -1,5 +1,7 @@
 #include "Battlemap_TestCursorHUD.h"
+#include "Battlemap_TestCursorGameMode.h"
 #include "Battlemap_TestCursorPlayerController.h"
+#include "BattleOrbatBattleWidget.h"
 #include "BattleUnit.h"
 #include "BattleECMZoneComponent.h"
 #include "BattleTypes.h"
@@ -160,6 +162,30 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 		}
 	}
 	Lines.Add(FString::Printf(TEXT("提示：%s"), Snapshot.LastHint.IsEmpty() ? TEXT("无") : *Snapshot.LastHint));
+
+	float MouseScreenX = 0.f;
+	float MouseScreenY = 0.f;
+	if (BattleController->GetMousePosition(MouseScreenX, MouseScreenY))
+	{
+		Lines.Add(FString::Printf(TEXT("鼠标屏幕坐标：%.0f, %.0f"), MouseScreenX, MouseScreenY));
+	}
+	else
+	{
+		Lines.Add(TEXT("鼠标屏幕坐标：（无法读取）"));
+	}
+
+	if (UWorld* HUDWorld = BattleController->GetWorld())
+	{
+		if (ABattlemap_TestCursorGameMode* GM = Cast<ABattlemap_TestCursorGameMode>(HUDWorld->GetAuthGameMode()))
+		{
+			if (UBattleOrbatBattleWidget* Orbat = GM->GetBattleOrbatBattleWidget())
+			{
+				Lines.Add(TEXT("战斗序列按钮屏幕位置："));
+				Orbat->AppendDebugScreenPositions(Lines, BattleController);
+			}
+		}
+	}
+
 	for (const FString& UnitName : Snapshot.SelectedUnitNames)
 	{
 		Lines.Add(FString::Printf(TEXT("- %s"), *UnitName));
@@ -326,36 +352,49 @@ void ABattlemap_TestCursorHUD::DrawHUD()
 		}
 	}
 
+	auto DrawWhiteHoverRing = [&](ABattleUnit* Unit)
+	{
+		if (!Unit || !Unit->IsAlive())
+		{
+			return;
+		}
+		const float HoverRadius = Unit->GetHoverCircleRadius();
+		const int32 HoverSegmentCount = 48;
+		FVector2D PrevScreen = FVector2D::ZeroVector;
+		bool bHasPrev = false;
+		for (int32 Segment = 0; Segment <= HoverSegmentCount; ++Segment)
+		{
+			const float Angle = (static_cast<float>(Segment) / static_cast<float>(HoverSegmentCount)) * 2.0f * PI;
+			const FVector WorldPoint = Unit->GetActorLocation() + FVector(FMath::Cos(Angle) * HoverRadius, FMath::Sin(Angle) * HoverRadius, 0.0f);
+			FVector2D ScreenPoint;
+			if (!BattleController->ProjectWorldLocationToScreen(WorldPoint, ScreenPoint, true))
+			{
+				bHasPrev = false;
+				continue;
+			}
+			if (bHasPrev)
+			{
+				DrawLine(PrevScreen.X, PrevScreen.Y, ScreenPoint.X, ScreenPoint.Y, FLinearColor::White, 5.0f);
+			}
+			PrevScreen = ScreenPoint;
+			bHasPrev = true;
+		}
+	};
+
+	for (ABattleUnit* Sel : BattleController->GetSelectedUnits())
+	{
+		if (Sel && Sel->bFriendly)
+		{
+			DrawWhiteHoverRing(Sel);
+		}
+	}
+
 	FHitResult HoverHit;
 	if (BattleController->GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, HoverHit))
 	{
-		ABattleUnit* HoveredUnit = Cast<ABattleUnit>(HoverHit.GetActor());
-		if (HoveredUnit)
+		if (ABattleUnit* HoveredUnit = Cast<ABattleUnit>(HoverHit.GetActor()))
 		{
-			const float HoverRadius = HoveredUnit->GetHoverCircleRadius();
-			const int32 HoverSegmentCount = 48;
-			FVector2D PrevScreen = FVector2D::ZeroVector;
-			bool bHasPrev = false;
-
-			for (int32 Segment = 0; Segment <= HoverSegmentCount; ++Segment)
-			{
-				const float Angle = (static_cast<float>(Segment) / static_cast<float>(HoverSegmentCount)) * 2.0f * PI;
-				const FVector WorldPoint = HoveredUnit->GetActorLocation() + FVector(FMath::Cos(Angle) * HoverRadius, FMath::Sin(Angle) * HoverRadius, 0.0f);
-				FVector2D ScreenPoint;
-				if (!BattleController->ProjectWorldLocationToScreen(WorldPoint, ScreenPoint, true))
-				{
-					bHasPrev = false;
-					continue;
-				}
-
-				if (bHasPrev)
-				{
-					DrawLine(PrevScreen.X, PrevScreen.Y, ScreenPoint.X, ScreenPoint.Y, FLinearColor::White, 5.0f);
-				}
-
-				PrevScreen = ScreenPoint;
-				bHasPrev = true;
-			}
+			DrawWhiteHoverRing(HoveredUnit);
 		}
 	}
 }

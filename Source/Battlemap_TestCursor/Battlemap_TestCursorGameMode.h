@@ -9,11 +9,14 @@
 #include "BattleTypes.h"
 #include "BattleCareerTypes.h"
 #include "BattleBalanceTableTypes.h"
+#include "BattleOrbatBattleWidget.h"
 #include "Battlemap_TestCursorGameMode.generated.h"
 
 class ATacticalMapGrid;
 class ABattleUnit;
 class UDataTable;
+class ABattleDeploymentEntryActor;
+class ABattlemap_TestCursorPlayerController;
 
 UCLASS(minimalapi)
 class ABattlemap_TestCursorGameMode : public AGameModeBase
@@ -42,9 +45,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Battle|Mission")
 	float GetDefenseHoldDurationSeconds() const { return DefenseHoldDurationSeconds; }
 
+	void HandleDeploymentEntryClicked(ABattleDeploymentEntryActor* Entry, ABattlemap_TestCursorPlayerController* PC);
+
 	/** Merged `UBattleBalanceDeveloperSettings` + optional DataTable row (same rules as `ApplyBalanceToUnit`). */
 	UFUNCTION(BlueprintPure, Category = "Battle|Balance")
 	FBattleBalanceTableRow GetEffectiveBattleBalanceRow() const;
+
+	UBattleOrbatBattleWidget* GetBattleOrbatBattleWidget() const { return BattleOrbatBattleWidget; }
+
+	const TArray<FPlayerLoadoutSlot>& GetCachedBattleLoadoutSlots() const { return CachedBattleLoadoutSlots; }
 
 protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Battle|Test")
@@ -102,14 +111,34 @@ protected:
 	TArray<FMissionUnitStartRecord> MissionStartRecords;
 
 	bool bMissionDebriefPresented = false;
+	bool bMissionStartCaptured = false;
+
+	UPROPERTY()
+	TArray<TObjectPtr<ABattleDeploymentEntryActor>> DeploymentActorsByEdge;
+
+	int32 PlayerEdgeIndex0 = 0;
+	int32 PlayerEdgeIndex1 = 1;
+	int32 EnemyEdgeIndex0 = 2;
+	int32 EnemyEdgeIndex1 = 3;
+
+	TArray<FPlayerLoadoutSlot> CachedBattleLoadoutSlots;
+
+	UPROPERTY()
+	TObjectPtr<UBattleOrbatBattleWidget> BattleOrbatBattleWidget;
+
+	void SpawnDeploymentEdgeActors();
+	FVector GetMapEdgeWorldLocation(int32 EdgeIndex, float OutwardPaddingUU) const;
+	void TryCaptureMissionStartWhenReady();
+	bool IsSideAlreadySpawnedForSlot(int32 SlotIdx, bool bFriendlyUnit) const;
 
 	void SpawnTestEnvironment();
 
-	void SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, bool bApplyEnemyTankPreset, const FString& LoadoutClass = FString());
+	void SpawnBattleUnit(const FVector& Location, const FString& UnitName, bool bFriendly, TSubclassOf<ABattleUnit> UnitClass, EUnitCategory Category, EUnitType Type, bool bApplyEnemyTankPreset, const FString& LoadoutClass = FString(), int32 SourceLoadoutSlotIndex = INDEX_NONE);
 
 	TSubclassOf<ABattleUnit> PickClassForLoadoutSlot(const FPlayerLoadoutSlot& Slot) const;
 
 	void CaptureMissionStartSnapshots();
+	void AppendMissionStartRecordsForNewSpawnedUnits();
 
 	void TryPresentMissionDebrief();
 

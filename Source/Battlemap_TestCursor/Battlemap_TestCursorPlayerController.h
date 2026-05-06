@@ -105,14 +105,6 @@ protected:
 	void OnRotateReleased();
 	void OnRotateAxis(float AxisValue);
 	void OnFocusSelectedUnit();
-	void OnMoveForwardPressed();
-	void OnMoveForwardReleased();
-	void OnMoveBackwardPressed();
-	void OnMoveBackwardReleased();
-	void OnMoveRightPressed();
-	void OnMoveRightReleased();
-	void OnMoveLeftPressed();
-	void OnMoveLeftReleased();
 	void OnAltPressed();
 	void OnAltReleased();
 	void OnLeftMousePressed();
@@ -141,7 +133,10 @@ public:
 	void SetSelectedUnit(ABattleUnit* InSelectedUnit);
 
 	UFUNCTION(BlueprintCallable, Category = "Battle|Debug")
-	void SetSelectedUnits(const TArray<ABattleUnit*>& InSelectedUnits);
+	void SetSelectedUnits(const TArray<ABattleUnit*>& InSelectedUnits, bool bUpdateOrbatTipFromSelection = true);
+
+	void SetDeploymentOrbatTipSlot(int32 SlotIndex);
+	int32 GetDeploymentOrbatTipSlot() const { return DeploymentOrbatTipSlotIndex; }
 
 	UFUNCTION(BlueprintCallable, Category = "Battle|Debug")
 	FDebugBattleSnapshot BuildDebugSnapshot() const;
@@ -149,11 +144,18 @@ public:
 	const TArray<ABattleUnit*>& GetSelectedUnits() const { return SelectedUnits; }
 	ATacticalMapGrid* GetTacticalMapGrid() const { return TacticalMapGrid; }
 
+	void SetDeploymentSquadSlotSelection(const TArray<int32>& Indices);
+	const TArray<int32>& GetDeploymentSquadSlotSelection() const { return DeploymentSquadSlotSelection; }
+	void RefreshWorldSelectionForDeploymentSlots();
+	void NotifyDeploymentHint(const FString& Msg);
+
 private:
 	void UpdateFogOfWar(float DeltaTime);
 	void ApplyEnemyVisibilityForFog();
 	void UpdateSelectionFromCursor();
 	void UpdateBoxSelection();
+	void RefreshBoxSelectionHighlight();
+	TArray<ABattleUnit*> GatherFriendlyUnitsInScreenRect(const FVector2D& RectA, const FVector2D& RectB);
 	void ClearSelectionInternal(bool bClearHint);
 
 	void SetStatusHint(const FString& NewHint);
@@ -172,6 +174,12 @@ private:
 	UPROPERTY()
 	TArray<ABattleUnit*> SelectedUnits;
 
+	UPROPERTY()
+	TArray<int32> DeploymentSquadSlotSelection;
+
+	/** ORBAT node index for hierarchical command priority (NavStack tip or single picked squad). */
+	int32 DeploymentOrbatTipSlotIndex = INDEX_NONE;
+
 	TWeakObjectPtr<ABattleUnit> LastAttackTarget;
 
 	FString StatusHint;
@@ -189,8 +197,6 @@ private:
 	float SelectionDragThreshold = 8.0f;
 	FVector2D RightClickPressScreenPosition = FVector2D::ZeroVector;
 	float RightDragThreshold = 6.0f;
-	float KeyboardForwardInput = 0.0f;
-	float KeyboardRightInput = 0.0f;
 	float FogUpdateCooldown = 0.0f;
 	float FogUpdateInterval = 0.2f;
 	int32 CachedVisibleEnemyCount = 0;

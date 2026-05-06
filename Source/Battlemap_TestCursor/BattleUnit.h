@@ -36,6 +36,15 @@ public:
 	/** Index in `ABattlemap_TestCursorGameMode::SpawnedUnits` at spawn; used for mission debrief matching. */
 	int32 MissionSpawnOrdinal = INDEX_NONE;
 
+	/** Career ORBAT slot index for this unit; INDEX_NONE if not from loadout deployment. */
+	int32 SourceLoadoutSlotIndex = INDEX_NONE;
+
+	/**
+	 * Last ORBAT node (battalion / company / \u2026) that issued a move or attack this unit accepted.
+	 * Used so a broader selection cannot override squads already tasked under a more specific node.
+	 */
+	int32 CommandLockIssuerSlotIndex = INDEX_NONE;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battle")
 	float CurrentHealth = 100.0f;
 

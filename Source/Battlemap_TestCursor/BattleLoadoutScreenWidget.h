@@ -35,6 +35,16 @@ public:
 	static void ApplySpawnMappingFromCatalogStrings(FPlayerLoadoutSlot& Slot);
 	static void ApplyDefaultCatalogStrings(FPlayerLoadoutSlot& Slot);
 
+	/** ORBAT rows with no parent (or invalid parent index). */
+	static TArray<int32> GetOrbatRootIndices(const TArray<FPlayerLoadoutSlot>& Slots);
+	/** Direct child slot indices of ParentSlotIndex. */
+	static TArray<int32> GetOrbatChildIndices(int32 ParentSlotIndex, const TArray<FPlayerLoadoutSlot>& Slots);
+	/** All eligible deployable \u73ed (leaf squads) under SubtreeRootSlotIndex. */
+	static void CollectEligibleBattleSquadsUnder(int32 SubtreeRootSlotIndex, const TArray<FPlayerLoadoutSlot>& Slots, TArray<int32>& OutSquads);
+
+	/** True if ChildSlotIndex is a strict descendant of ParentSlotIndex in the ORBAT parent chain. */
+	static bool IsOrbatSlotStrictlyUnderParent(int32 ParentSlotIndex, int32 ChildSlotIndex, const TArray<FPlayerLoadoutSlot>& Slots);
+
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
