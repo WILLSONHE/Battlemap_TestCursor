@@ -8,7 +8,7 @@
 class UVerticalBox;
 class UButton;
 class UTextBlock;
-class USpacer;
+class UBorder;
 class UCanvasPanel;
 class UHorizontalBox;
 class UBattleOrbatClickRelay;
@@ -32,8 +32,10 @@ public:
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	void BuildShellIfNeeded();
+	void ApplyOrbatCanvasLayout();
 	void RebuildRows();
 	void PushSelectionToPlayerController();
 	void UpdateSelectionFromNavStack();
@@ -48,21 +50,19 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> RootCanvas = nullptr;
 
+	/** Expands root canvas to full viewport so bottom-anchored rows stay visible. */
 	UPROPERTY()
-	TObjectPtr<UVerticalBox> MainColumn = nullptr;
+	TObjectPtr<UBorder> ViewportFill = nullptr;
 
-	/** Title + back button; compact width, centered in the strip. */
+	/** Title + back button; fixed viewport Y (see layout constants in .cpp). */
 	UPROPERTY()
 	TObjectPtr<UHorizontalBox> HeaderRow = nullptr;
 
-	/** Absorbs space above drill rows so drill + root stay against the bottom of the strip. */
-	UPROPERTY()
-	TObjectPtr<USpacer> TopPushSpacer = nullptr;
-
+	/** Drill-down rows; bottom edge pinned above root row, grows upward only. */
 	UPROPERTY()
 	TObjectPtr<UVerticalBox> RowsInner = nullptr;
 
-	/** Top-level ORBAT buttons along the bottom of the strip (below drill rows). */
+	/** Top-level ORBAT buttons; fixed viewport Y, unchanged when drilling. */
 	UPROPERTY()
 	TObjectPtr<UHorizontalBox> RootRowBox = nullptr;
 
@@ -81,4 +81,6 @@ protected:
 
 	UPROPERTY()
 	TArray<int32> OrbatDebugSlotIndices;
+
+	FVector2D LastLayoutViewportSize = FVector2D::ZeroVector;
 };

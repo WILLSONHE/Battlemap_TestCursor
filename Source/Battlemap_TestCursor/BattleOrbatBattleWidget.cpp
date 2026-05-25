@@ -3,13 +3,12 @@
 #include "BattleLoadoutScreenWidget.h"
 #include "Battlemap_TestCursorPlayerController.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
-#include "Components/SlateWrapperTypes.h"
-#include "Components/Spacer.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -18,7 +17,80 @@
 
 namespace
 {
-	const FName GOrbatBattleRootName(TEXT("BattleOrbatNativeRoot"));
+	const FName GOrbatBattleRootName(TEXT("BattleOrbatNativeRootV3"));
+
+	/** Viewport pixel Y for top edge of root-level buttons (HUD debug target). */
+	constexpr float GOrbatRootRowScreenY = 1213.f;
+
+	/** Viewport pixel Y for top edge of title + back row. */
+	constexpr float GOrbatHeaderRowScreenY = 1283.f;
+
+	/** Pin widget top edge to a fixed viewport Y by offset from viewport bottom (works at any height >= target). */
+	void SetCanvasTopAtTargetScreenY(UWidget* Widget, float ViewportHeight, float TargetTopY)
+	{
+		if (!Widget || ViewportHeight <= 1.f)
+		{
+			return;
+		}
+		const float OffsetFromBottom = FMath::Max(4.f, ViewportHeight - TargetTopY);
+		if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Widget->Slot))
+		{
+			Slot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
+			Slot->SetAlignment(FVector2D(0.5f, 0.f));
+			Slot->SetPosition(FVector2D(0.f, -OffsetFromBottom));
+			Slot->SetAutoSize(true);
+		}
+	}
+
+	/** Pin widget bottom edge to the same viewport Y as root row top (drill stack grows upward). */
+	void SetCanvasBottomAtTargetScreenY(UWidget* Widget, float ViewportHeight, float TargetBottomY)
+	{
+		if (!Widget || ViewportHeight <= 1.f)
+		{
+			return;
+		}
+		const float OffsetFromBottom = FMath::Max(4.f, ViewportHeight - TargetBottomY);
+		if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Widget->Slot))
+		{
+			Slot->SetAnchors(FAnchors(0.5f, 1.f, 0.5f, 1.f));
+			Slot->SetAlignment(FVector2D(0.5f, 1.f));
+			Slot->SetPosition(FVector2D(0.f, -OffsetFromBottom));
+			Slot->SetAutoSize(true);
+		}
+	}
+
+	float GetViewportHeightForOrbat(const UBattleOrbatBattleWidget* Widget)
+	{
+		if (!Widget)
+		{
+			return 0.f;
+		}
+		if (APlayerController* PC = Widget->GetOwningPlayer())
+		{
+			int32 SizeX = 0;
+			int32 SizeY = 0;
+			PC->GetViewportSize(SizeX, SizeY);
+			if (SizeY > 0)
+			{
+				return static_cast<float>(SizeY);
+			}
+		}
+		const FVector2D LocalSize = Widget->GetCachedGeometry().GetLocalSize();
+		return LocalSize.Y > 1.f ? LocalSize.Y : 0.f;
+	}
+
+	void PinWidgetFullViewport(UCanvasPanel* Canvas, UWidget* Widget)
+	{
+		if (!Canvas || !Widget)
+		{
+			return;
+		}
+		if (UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(Widget))
+		{
+			Slot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+			Slot->SetOffsets(FMargin(0.f));
+		}
+	}
 }
 
 TSharedRef<SWidget> UBattleOrbatBattleWidget::RebuildWidget()
@@ -30,7 +102,34 @@ TSharedRef<SWidget> UBattleOrbatBattleWidget::RebuildWidget()
 void UBattleOrbatBattleWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	SetAnchorsInViewport(FAnchors(0.f, 0.f, 1.f, 1.f));
+	SetAlignmentInViewport(FVector2D::ZeroVector);
+	LastLayoutViewportSize = FVector2D::ZeroVector;
 	RebuildRows();
+	ApplyOrbatCanvasLayout();
+}
+
+void UBattleOrbatBattleWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	FVector2D ViewportSize = FVector2D::ZeroVector;
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		int32 SizeX = 0;
+		int32 SizeY = 0;
+		PC->GetViewportSize(SizeX, SizeY);
+		ViewportSize = FVector2D(static_cast<float>(SizeX), static_cast<float>(SizeY));
+	}
+	if (ViewportSize.Y < 1.f)
+	{
+		ViewportSize = MyGeometry.GetLocalSize();
+	}
+	if (!ViewportSize.Equals(LastLayoutViewportSize, 0.5f))
+	{
+		LastLayoutViewportSize = ViewportSize;
+		ApplyOrbatCanvasLayout();
+	}
 }
 
 void UBattleOrbatBattleWidget::SetupWithLoadout(const TArray<FPlayerLoadoutSlot>& InSlots)
@@ -68,7 +167,16 @@ void UBattleOrbatBattleWidget::BuildShellIfNeeded()
 	RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), GOrbatBattleRootName);
 	WidgetTree->RootWidget = RootCanvas;
 
-	MainColumn = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("OrbatMainCol"));
+	ViewportFill = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("OrbatViewportFill"));
+	ViewportFill->SetVisibility(ESlateVisibility::HitTestInvisible);
+	ViewportFill->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
+	PinWidgetFullViewport(RootCanvas, ViewportFill);
+
+	RowsInner = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("OrbatRowsInner"));
+	RootCanvas->AddChildToCanvas(RowsInner);
+
+	RootRowBox = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("OrbatRootRow"));
+	RootCanvas->AddChildToCanvas(RootRowBox);
 
 	HeaderRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("OrbatHeader"));
 	UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("OrbatTitle"));
@@ -89,38 +197,23 @@ void UBattleOrbatBattleWidget::BuildShellIfNeeded()
 		BackSlot->SetVerticalAlignment(VAlign_Center);
 	}
 
-	TopPushSpacer = WidgetTree->ConstructWidget<USpacer>(USpacer::StaticClass(), TEXT("OrbatTopPush"));
-	if (UVerticalBoxSlot* SpacerSlot = MainColumn->AddChildToVerticalBox(TopPushSpacer))
-	{
-		SpacerSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-	}
+	RootCanvas->AddChildToCanvas(HeaderRow);
+}
 
-	RowsInner = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("OrbatRowsInner"));
-	if (UVerticalBoxSlot* DrillSlot = MainColumn->AddChildToVerticalBox(RowsInner))
+void UBattleOrbatBattleWidget::ApplyOrbatCanvasLayout()
+{
+	if (!RootCanvas)
 	{
-		DrillSlot->SetHorizontalAlignment(HAlign_Center);
+		return;
 	}
-
-	RootRowBox = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("OrbatRootRow"));
-	if (UVerticalBoxSlot* RootVBoxSlot = MainColumn->AddChildToVerticalBox(RootRowBox))
+	const float ViewportH = GetViewportHeightForOrbat(this);
+	if (ViewportH <= 1.f)
 	{
-		RootVBoxSlot->SetHorizontalAlignment(HAlign_Center);
-		RootVBoxSlot->SetVerticalAlignment(VAlign_Bottom);
-		RootVBoxSlot->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
+		return;
 	}
-
-	if (UVerticalBoxSlot* HeaderVBoxSlot = MainColumn->AddChildToVerticalBox(HeaderRow))
-	{
-		HeaderVBoxSlot->SetHorizontalAlignment(HAlign_Center);
-		HeaderVBoxSlot->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f));
-	}
-
-	if (UCanvasPanelSlot* BarSlot = RootCanvas->AddChildToCanvas(MainColumn))
-	{
-		BarSlot->SetAnchors(FAnchors(0.f, 1.f, 1.f, 1.f));
-		BarSlot->SetAlignment(FVector2D(0.5f, 1.f));
-		BarSlot->SetOffsets(FMargin(32.f, -300.f, 32.f, 0.f));
-	}
+	SetCanvasBottomAtTargetScreenY(RowsInner, ViewportH, GOrbatRootRowScreenY);
+	SetCanvasTopAtTargetScreenY(RootRowBox, ViewportH, GOrbatRootRowScreenY);
+	SetCanvasTopAtTargetScreenY(HeaderRow, ViewportH, GOrbatHeaderRowScreenY);
 }
 
 void UBattleOrbatBattleWidget::OnBackClicked()
@@ -277,7 +370,8 @@ void UBattleOrbatBattleWidget::RebuildRows()
 		}
 	}
 
-	RowsInner->SetVisibility(ESlateVisibility::Visible);
+	RowsInner->SetVisibility(NavStack.Num() > 0 ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	ApplyOrbatCanvasLayout();
 	InvalidateLayoutAndVolatility();
 }
 
