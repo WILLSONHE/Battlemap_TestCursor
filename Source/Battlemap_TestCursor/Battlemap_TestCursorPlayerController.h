@@ -7,6 +7,7 @@
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "BattleTypes.h"
+#include "BattleVoiceCommandTypes.h"
 #include "Battlemap_TestCursorPlayerController.generated.h"
 
 /** Forward declaration to improve compiling times */
@@ -15,6 +16,8 @@ class UInputMappingContext;
 class UInputAction;
 class ATacticalMapGrid;
 class ABattleUnit;
+class UBattleVoiceCommandSession;
+class UBattleVoiceCommandOverlayWidget;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -148,8 +151,26 @@ public:
 	const TArray<int32>& GetDeploymentSquadSlotSelection() const { return DeploymentSquadSlotSelection; }
 	void RefreshWorldSelectionForDeploymentSlots();
 	void NotifyDeploymentHint(const FString& Msg);
+	void SetStatusHint(const FString& NewHint);
+
+	/** Shared move/attack/stop path for mouse and voice commands. */
+	FBattleCommandIssueResult IssueMoveCommandToUnits(const TArray<ABattleUnit*>& Units, const FVector& Destination);
+	FBattleCommandIssueResult IssueAttackCommandToUnits(const TArray<ABattleUnit*>& Units, ABattleUnit* TargetUnit);
+	FBattleCommandIssueResult IssueStopCommandToUnits(const TArray<ABattleUnit*>& Units);
+
+	void InitializeBattleVoiceCommandUI();
+	void TickBattleVoiceCommand(float DeltaSeconds);
+	void OnVoiceCommandKeyPressed();
+	void OnVoiceCommandKeyReleased();
+	void OnVoiceDebugInjectText();
+
+	UBattleVoiceCommandSession* GetVoiceCommandSession() const { return VoiceCommandSession; }
+	UBattleVoiceCommandOverlayWidget* GetVoiceCommandOverlay() const { return VoiceCommandOverlay; }
 
 private:
+	bool ShouldSkipUnitForOrbatCommand(ABattleUnit* Unit) const;
+	void AppendOrbatPriorityHintToMessage(FString& Msg, int32 SkippedOrbatCount) const;
+
 	void UpdateFogOfWar(float DeltaTime);
 	void ApplyEnemyVisibilityForFog();
 	void UpdateSelectionFromCursor();
@@ -157,8 +178,6 @@ private:
 	void RefreshBoxSelectionHighlight();
 	TArray<ABattleUnit*> GatherFriendlyUnitsInScreenRect(const FVector2D& RectA, const FVector2D& RectB);
 	void ClearSelectionInternal(bool bClearHint);
-
-	void SetStatusHint(const FString& NewHint);
 
 	FVector CachedDestination;
 
@@ -200,6 +219,12 @@ private:
 	float FogUpdateCooldown = 0.0f;
 	float FogUpdateInterval = 0.2f;
 	int32 CachedVisibleEnemyCount = 0;
+
+	UPROPERTY()
+	TObjectPtr<UBattleVoiceCommandSession> VoiceCommandSession;
+
+	UPROPERTY()
+	TObjectPtr<UBattleVoiceCommandOverlayWidget> VoiceCommandOverlay;
 };
 
 

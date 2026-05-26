@@ -4,6 +4,7 @@
 #include "Engine/GameInstance.h"
 #include "BattleCareerTypes.h"
 #include "BattleTypes.h"
+#include "BattleAudioInputTypes.h"
 #include "BattleGameInstance.generated.h"
 
 class UBattleCareerSaveGame;
@@ -68,6 +69,17 @@ public:
 	static int32 GetMaxSelectableUnitScaleOrdinal(int32 RankIndex);
 	static int32 GetXpToNextRank(int32 RankIndex, int32 CurrentXp);
 
+	const FString& GetSelectedMicrophoneDeviceId() const { return SelectedMicrophoneDeviceId; }
+	const FString& GetSelectedMicrophoneDisplayName() const { return SelectedMicrophoneDisplayName; }
+	const TArray<FBattleAudioInputDeviceInfo>& GetCachedMicrophoneDevices() const { return CachedMicrophoneDevices; }
+	bool RefreshMicrophoneDeviceList(FString* OutError = nullptr);
+	void SetSelectedMicrophoneByDisplayName(const FString& DisplayName);
+	float QuerySelectedMicrophonePeakLevel(FString* OutError = nullptr) const;
+	bool BeginMicrophoneLevelTest(FString* OutError = nullptr);
+	void EndMicrophoneLevelTest();
+	void LoadVoiceInputSettings();
+	void SaveVoiceInputSettings() const;
+
 protected:
 	void SanitizeMenuStack();
 
@@ -79,4 +91,8 @@ protected:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UUserWidget>> MenuWidgetStack;
+
+	FString SelectedMicrophoneDeviceId;
+	FString SelectedMicrophoneDisplayName;
+	TArray<FBattleAudioInputDeviceInfo> CachedMicrophoneDevices;
 };

@@ -302,6 +302,29 @@ void ABattleUnit::IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandP
 	LastCombatEvent = FString::Printf(TEXT("%s 锁定目标 %s。"), *UnitLabel, *TargetUnit->UnitLabel);
 }
 
+void ABattleUnit::IssueStopCommandInterrupt(ECommandPriority Priority)
+{
+	if (!IsAlive())
+	{
+		return;
+	}
+
+	if (CommandComponent)
+	{
+		CommandComponent->RemoveCommandsByType(ECommandType::Move);
+		CommandComponent->RemoveCommandsByType(ECommandType::Attack);
+	}
+
+	DestroyMoveMarker();
+	ClearMovePath();
+	AttackTarget = nullptr;
+	bHasActiveCommand = false;
+	ActiveCommand = FActiveCommand();
+	ActiveCommand.Priority = Priority;
+	RuntimeState = EUnitRuntimeState::Idle;
+	LastCombatEvent = FString::Printf(TEXT("%s 停止移动。"), *UnitLabel);
+}
+
 ATacticalMapGrid* ABattleUnit::ResolveTacticalMapGrid() const
 {
 	if (CachedMapGrid.IsValid())

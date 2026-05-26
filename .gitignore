@@ -1,0 +1,29 @@
+# Unreal Engine
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+
+# Visual Studio / Rider
+.vs/
+.vscode/
+*.sln.docstates
+*.user
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.db-shm
+*.VC.db-wal
+*.VC.opendb
+*.sdf
+ipch/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Cursor / local IDE caches (keep rules/skills out of ignore)
+.cursor/projects/

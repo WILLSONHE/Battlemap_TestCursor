@@ -99,6 +99,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
 	void IssueAttackCommandInterrupt(ABattleUnit* TargetUnit, ECommandPriority Priority = ECommandPriority::High);
 
+	UFUNCTION(BlueprintCallable, Category = "Battle|Command")
+	void IssueStopCommandInterrupt(ECommandPriority Priority = ECommandPriority::High);
+
 	UFUNCTION(BlueprintPure, Category = "Battle|Visual")
 	float GetHoverCircleRadius() const;
 

@@ -10,6 +10,8 @@ public class Battlemap_TestCursorEditorTarget : TargetRules
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_5;
+		// Avoid git-status adaptive working set + extra SourceFileCache.bin writers (reduces UBT file locks).
+		bUseAdaptiveUnityBuild = false;
 		ExtraModuleNames.Add("Battlemap_TestCursor");
 	}
 }

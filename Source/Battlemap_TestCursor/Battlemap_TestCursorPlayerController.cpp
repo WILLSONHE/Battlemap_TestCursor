@@ -22,6 +22,8 @@
 #include "Battlemap_TestCursorGameMode.h"
 #include "BattleLoadoutScreenWidget.h"
 #include "BattleOrbatBattleWidget.h"
+#include "BattleVoiceCommandSession.h"
+#include "BattleVoiceCommandOverlayWidget.h"
 #include "BattleDeploymentEntryActor.h"
 #include "BattleGameInstance.h"
 #include "BattleBalanceTableTypes.h"
@@ -96,12 +98,13 @@ void ABattlemap_TestCursorPlayerController::BeginPlay()
 	bEnableMouseOverEvents = true;
 	bShowMouseCursor = true;
 
-	// Keep scene lighting/shadows enabled. We control shadow behavior per-mesh.
+	InitializeBattleVoiceCommandUI();
 }
 
 void ABattlemap_TestCursorPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+	TickBattleVoiceCommand(DeltaTime);
 	UpdateFogOfWar(DeltaTime);
 
 	float MouseX = 0.0f;
@@ -360,6 +363,10 @@ void ABattlemap_TestCursorPlayerController::SetupInputComponent()
 		InputComponent->BindKey(EKeys::NumPadThree, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewIsWaterMask);
 		InputComponent->BindKey(EKeys::NumPadFour, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewBaseTint);
 		InputComponent->BindKey(EKeys::NumPadFive, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnDebugViewContourMask);
+		InputComponent->BindKey(EKeys::M, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnVoiceCommandKeyPressed);
+		InputComponent->BindKey(EKeys::M, IE_Released, this, &ABattlemap_TestCursorPlayerController::OnVoiceCommandKeyReleased);
+		// F9: debug inject (do not use ~ — it opens the UE console and shows "Command not recognized").
+		InputComponent->BindKey(EKeys::F9, IE_Pressed, this, &ABattlemap_TestCursorPlayerController::OnVoiceDebugInjectText);
 	}
 }
 
@@ -551,194 +558,17 @@ void ABattlemap_TestCursorPlayerController::OnCommandTriggered()
 		}
 	}
 
-	int32 IssuedCount = 0;
-	int32 SkippedAttackNoCommsCount = 0;
-	int32 SkippedOrbatPriorityCount = 0;
-	int32 MovePathFailedCount = 0;
-	FVector2D FormationForward = FVector2D::ZeroVector;
-	FVector FormationOrigin = CachedDestination;
-
-	const ABattlemap_TestCursorGameMode* BattleGM = GetWorld() ? Cast<ABattlemap_TestCursorGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
-	const TArray<FPlayerLoadoutSlot>* LoadoutSlots = BattleGM ? &BattleGM->GetCachedBattleLoadoutSlots() : nullptr;
-	const int32 IssuerTipSlot = DeploymentOrbatTipSlotIndex;
-
-	auto ShouldSkipForOrbatCommandPriority = [&](ABattleUnit* Unit) -> bool
-	{
-		if (!LoadoutSlots || !Unit || IssuerTipSlot == INDEX_NONE || Unit->CommandLockIssuerSlotIndex == INDEX_NONE)
-		{
-			return false;
-		}
-		return UBattleLoadoutScreenWidget::IsOrbatSlotStrictlyUnderParent(IssuerTipSlot, Unit->CommandLockIssuerSlotIndex, *LoadoutSlots);
-	};
-
-	if (!bAttackCommand)
-	{
-		FVector GroupCenter = FVector::ZeroVector;
-		int32 ValidUnitCount = 0;
-		for (ABattleUnit* Unit : SelectedUnits)
-		{
-			if (!Unit)
-			{
-				continue;
-			}
-			GroupCenter += Unit->GetActorLocation();
-			++ValidUnitCount;
-		}
-		if (ValidUnitCount > 0)
-		{
-			GroupCenter /= static_cast<float>(ValidUnitCount);
-			FormationForward = FVector2D(CachedDestination.X - GroupCenter.X, CachedDestination.Y - GroupCenter.Y).GetSafeNormal();
-		}
-
-		if (FormationForward.IsNearlyZero())
-		{
-			if (const ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
-			{
-				if (const UCameraComponent* Camera = BattleCharacter->GetTopDownCameraComponent())
-				{
-					const float CameraYawRad = FMath::DegreesToRadians(Camera->GetComponentRotation().Yaw);
-					FormationForward = FVector2D(FMath::Cos(CameraYawRad), FMath::Sin(CameraYawRad));
-				}
-			}
-		}
-		if (FormationForward.IsNearlyZero())
-		{
-			FormationForward = FVector2D(1.0f, 0.0f);
-		}
-	}
-
-	if (bAttackCommand)
-	{
-		for (ABattleUnit* Unit : SelectedUnits)
-		{
-			if (!Unit || !Unit->CommandComponent)
-			{
-				continue;
-			}
-
-			if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
-			{
-				SkippedAttackNoCommsCount++;
-				continue;
-			}
-
-			if (ShouldSkipForOrbatCommandPriority(Unit))
-			{
-				SkippedOrbatPriorityCount++;
-				continue;
-			}
-
-			Unit->IssueAttackCommandInterrupt(ClickedUnit, ECommandPriority::High);
-			Unit->CommandLockIssuerSlotIndex = IssuerTipSlot != INDEX_NONE ? IssuerTipSlot : INDEX_NONE;
-			++IssuedCount;
-		}
-	}
-	else
-	{
-		TArray<ABattleUnit*> MoveRecipients;
-		MoveRecipients.Reserve(SelectedUnits.Num());
-		for (ABattleUnit* Unit : SelectedUnits)
-		{
-			if (!Unit || !Unit->CommandComponent)
-			{
-				continue;
-			}
-
-			if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
-			{
-				continue;
-			}
-
-			if (ShouldSkipForOrbatCommandPriority(Unit))
-			{
-				SkippedOrbatPriorityCount++;
-				continue;
-			}
-
-			MoveRecipients.Add(Unit);
-		}
-
-		const int32 RecipientCount = MoveRecipients.Num();
-		for (int32 Idx = 0; Idx < RecipientCount; ++Idx)
-		{
-			ABattleUnit* Unit = MoveRecipients[Idx];
-			FVector MoveTarget = FormationOrigin;
-			if (bEnableFormationMove && RecipientCount > 1)
-			{
-				const int32 ColumnCount = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(RecipientCount)));
-				const int32 RowIndex = Idx / FMath::Max(1, ColumnCount);
-				const int32 ColIndex = Idx % FMath::Max(1, ColumnCount);
-				const float CenteredCol = static_cast<float>(ColIndex) - (static_cast<float>(ColumnCount - 1) * 0.5f);
-				const FVector2D Forward = FormationForward.GetSafeNormal();
-				const FVector2D Right(Forward.Y, -Forward.X);
-				const FVector2D Offset2D = (Right * (CenteredCol * FormationLateralSpacing)) - (Forward * (static_cast<float>(RowIndex) * FormationDepthSpacing));
-				MoveTarget.X += Offset2D.X;
-				MoveTarget.Y += Offset2D.Y;
-			}
-			if (!Unit->IssueMoveCommandInterrupt(MoveTarget, ECommandPriority::High))
-			{
-				MovePathFailedCount++;
-				continue;
-			}
-			Unit->CommandLockIssuerSlotIndex = IssuerTipSlot != INDEX_NONE ? IssuerTipSlot : INDEX_NONE;
-			++IssuedCount;
-		}
-	}
-
-	auto AppendOrbatPriorityHint = [&](FString& Msg)
-	{
-		if (SkippedOrbatPriorityCount > 0)
-		{
-			Msg += FString::Printf(TEXT(" %d 个单位保留更优先的下级命令。"), SkippedOrbatPriorityCount);
-		}
-	};
-
+	FBattleCommandIssueResult Result;
 	if (bAttackCommand)
 	{
 		LastAttackTarget = ClickedUnit;
-		FString Msg = FString::Printf(TEXT("已向 %d 个单位下达攻击命令。"), IssuedCount);
-		if (SkippedAttackNoCommsCount > 0)
-		{
-			Msg += FString::Printf(TEXT(" %d 个单位因通讯不可用未下达。"), SkippedAttackNoCommsCount);
-		}
-		AppendOrbatPriorityHint(Msg);
-		SetStatusHint(Msg);
+		Result = IssueAttackCommandToUnits(SelectedUnits, ClickedUnit);
 	}
 	else
 	{
-		if (MovePathFailedCount > 0 && IssuedCount == 0)
-		{
-			FString Msg(TEXT("没有可靠通行路径"));
-			AppendOrbatPriorityHint(Msg);
-			SetStatusHint(Msg);
-		}
-		else if (MovePathFailedCount > 0)
-		{
-			FString Msg;
-			if (bEnableFormationMove && IssuedCount > 1)
-			{
-				Msg = FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount);
-			}
-			else
-			{
-				Msg = FString::Printf(TEXT("已向 %d 个单位下达移动命令。%d 个单位没有可靠通行路径。"), IssuedCount, MovePathFailedCount);
-			}
-			AppendOrbatPriorityHint(Msg);
-			SetStatusHint(Msg);
-		}
-		else if (bEnableFormationMove && IssuedCount > 1)
-		{
-			FString Msg = FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。"), IssuedCount);
-			AppendOrbatPriorityHint(Msg);
-			SetStatusHint(Msg);
-		}
-		else
-		{
-			FString Msg = FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), IssuedCount);
-			AppendOrbatPriorityHint(Msg);
-			SetStatusHint(Msg);
-		}
+		Result = IssueMoveCommandToUnits(SelectedUnits, CachedDestination);
 	}
+	SetStatusHint(Result.Message);
 }
 
 void ABattlemap_TestCursorPlayerController::OnToggleCommsTriggered()
@@ -1225,5 +1055,264 @@ void ABattlemap_TestCursorPlayerController::OnDebugViewContourMask()
 	{
 		TacticalMapGrid->SetDebugViewMode(EMapDebugViewMode::ContourMask);
 		SetStatusHint(TEXT("DebugViewMode => ContourMask"));
+	}
+}
+
+bool ABattlemap_TestCursorPlayerController::ShouldSkipUnitForOrbatCommand(ABattleUnit* Unit) const
+{
+	const ABattlemap_TestCursorGameMode* BattleGM = GetWorld() ? Cast<ABattlemap_TestCursorGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
+	const TArray<FPlayerLoadoutSlot>* LoadoutSlots = BattleGM ? &BattleGM->GetCachedBattleLoadoutSlots() : nullptr;
+	const int32 IssuerTipSlot = DeploymentOrbatTipSlotIndex;
+	if (!LoadoutSlots || !Unit || IssuerTipSlot == INDEX_NONE || Unit->CommandLockIssuerSlotIndex == INDEX_NONE)
+	{
+		return false;
+	}
+	return UBattleLoadoutScreenWidget::IsOrbatSlotStrictlyUnderParent(IssuerTipSlot, Unit->CommandLockIssuerSlotIndex, *LoadoutSlots);
+}
+
+void ABattlemap_TestCursorPlayerController::AppendOrbatPriorityHintToMessage(FString& Msg, int32 SkippedOrbatCount) const
+{
+	if (SkippedOrbatCount > 0)
+	{
+		Msg += FString::Printf(TEXT(" %d 个单位保留更优先的下级命令。"), SkippedOrbatCount);
+	}
+}
+
+FBattleCommandIssueResult ABattlemap_TestCursorPlayerController::IssueMoveCommandToUnits(
+	const TArray<ABattleUnit*>& Units,
+	const FVector& Destination)
+{
+	FBattleCommandIssueResult Result;
+	if (Units.Num() == 0)
+	{
+		Result.Message = TEXT("命令失败：没有可命令的单位。");
+		return Result;
+	}
+
+	FVector2D FormationForward = FVector2D::ZeroVector;
+	FVector GroupCenter = FVector::ZeroVector;
+	int32 ValidUnitCount = 0;
+	for (ABattleUnit* Unit : Units)
+	{
+		if (!Unit)
+		{
+			continue;
+		}
+		GroupCenter += Unit->GetActorLocation();
+		++ValidUnitCount;
+	}
+	if (ValidUnitCount > 0)
+	{
+		GroupCenter /= static_cast<float>(ValidUnitCount);
+		FormationForward = FVector2D(Destination.X - GroupCenter.X, Destination.Y - GroupCenter.Y).GetSafeNormal();
+	}
+	if (FormationForward.IsNearlyZero())
+	{
+		if (const ABattlemap_TestCursorCharacter* BattleCharacter = Cast<ABattlemap_TestCursorCharacter>(GetPawn()))
+		{
+			if (const UCameraComponent* Camera = BattleCharacter->GetTopDownCameraComponent())
+			{
+				const float CameraYawRad = FMath::DegreesToRadians(Camera->GetComponentRotation().Yaw);
+				FormationForward = FVector2D(FMath::Cos(CameraYawRad), FMath::Sin(CameraYawRad));
+			}
+		}
+	}
+	if (FormationForward.IsNearlyZero())
+	{
+		FormationForward = FVector2D(1.0f, 0.0f);
+	}
+
+	TArray<ABattleUnit*> MoveRecipients;
+	MoveRecipients.Reserve(Units.Num());
+	for (ABattleUnit* Unit : Units)
+	{
+		if (!Unit || !Unit->CommandComponent)
+		{
+			continue;
+		}
+		if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
+		{
+			continue;
+		}
+		if (ShouldSkipUnitForOrbatCommand(Unit))
+		{
+			Result.SkippedOrbatCount++;
+			continue;
+		}
+		MoveRecipients.Add(Unit);
+	}
+
+	const int32 RecipientCount = MoveRecipients.Num();
+	const int32 IssuerTipSlot = DeploymentOrbatTipSlotIndex;
+	for (int32 Idx = 0; Idx < RecipientCount; ++Idx)
+	{
+		ABattleUnit* Unit = MoveRecipients[Idx];
+		FVector MoveTarget = Destination;
+		if (bEnableFormationMove && RecipientCount > 1)
+		{
+			const int32 ColumnCount = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(RecipientCount)));
+			const int32 RowIndex = Idx / FMath::Max(1, ColumnCount);
+			const int32 ColIndex = Idx % FMath::Max(1, ColumnCount);
+			const float CenteredCol = static_cast<float>(ColIndex) - (static_cast<float>(ColumnCount - 1) * 0.5f);
+			const FVector2D Forward = FormationForward.GetSafeNormal();
+			const FVector2D Right(Forward.Y, -Forward.X);
+			const FVector2D Offset2D = (Right * (CenteredCol * FormationLateralSpacing)) - (Forward * (static_cast<float>(RowIndex) * FormationDepthSpacing));
+			MoveTarget.X += Offset2D.X;
+			MoveTarget.Y += Offset2D.Y;
+		}
+		if (!Unit->IssueMoveCommandInterrupt(MoveTarget, ECommandPriority::High))
+		{
+			Result.MovePathFailedCount++;
+			continue;
+		}
+		Unit->CommandLockIssuerSlotIndex = IssuerTipSlot != INDEX_NONE ? IssuerTipSlot : INDEX_NONE;
+		Result.IssuedCount++;
+	}
+
+	Result.bSuccess = Result.IssuedCount > 0;
+	if (Result.MovePathFailedCount > 0 && Result.IssuedCount == 0)
+	{
+		Result.Message = TEXT("没有可靠通行路径");
+	}
+	else if (Result.MovePathFailedCount > 0)
+	{
+		Result.Message = bEnableFormationMove && Result.IssuedCount > 1
+			? FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。%d 个单位没有可靠通行路径。"), Result.IssuedCount, Result.MovePathFailedCount)
+			: FString::Printf(TEXT("已向 %d 个单位下达移动命令。%d 个单位没有可靠通行路径。"), Result.IssuedCount, Result.MovePathFailedCount);
+	}
+	else if (bEnableFormationMove && Result.IssuedCount > 1)
+	{
+		Result.Message = FString::Printf(TEXT("已向 %d 个单位下达编队移动命令。"), Result.IssuedCount);
+	}
+	else
+	{
+		Result.Message = FString::Printf(TEXT("已向 %d 个单位下达移动命令。"), Result.IssuedCount);
+	}
+	AppendOrbatPriorityHintToMessage(Result.Message, Result.SkippedOrbatCount);
+	return Result;
+}
+
+FBattleCommandIssueResult ABattlemap_TestCursorPlayerController::IssueAttackCommandToUnits(
+	const TArray<ABattleUnit*>& Units,
+	ABattleUnit* TargetUnit)
+{
+	FBattleCommandIssueResult Result;
+	if (!TargetUnit)
+	{
+		Result.Message = TEXT("命令失败：没有攻击目标。");
+		return Result;
+	}
+	const int32 IssuerTipSlot = DeploymentOrbatTipSlotIndex;
+	for (ABattleUnit* Unit : Units)
+	{
+		if (!Unit || !Unit->CommandComponent)
+		{
+			continue;
+		}
+		if (!Unit->CommsComponent || !Unit->CommsComponent->IsCommandEnabled())
+		{
+			Result.SkippedCommsCount++;
+			continue;
+		}
+		if (ShouldSkipUnitForOrbatCommand(Unit))
+		{
+			Result.SkippedOrbatCount++;
+			continue;
+		}
+		Unit->IssueAttackCommandInterrupt(TargetUnit, ECommandPriority::High);
+		Unit->CommandLockIssuerSlotIndex = IssuerTipSlot != INDEX_NONE ? IssuerTipSlot : INDEX_NONE;
+		Result.IssuedCount++;
+	}
+	Result.bSuccess = Result.IssuedCount > 0;
+	Result.Message = FString::Printf(TEXT("已向 %d 个单位下达攻击命令。"), Result.IssuedCount);
+	if (Result.SkippedCommsCount > 0)
+	{
+		Result.Message += FString::Printf(TEXT(" %d 个单位因通讯不可用未下达。"), Result.SkippedCommsCount);
+	}
+	AppendOrbatPriorityHintToMessage(Result.Message, Result.SkippedOrbatCount);
+	return Result;
+}
+
+FBattleCommandIssueResult ABattlemap_TestCursorPlayerController::IssueStopCommandToUnits(const TArray<ABattleUnit*>& Units)
+{
+	FBattleCommandIssueResult Result;
+	const int32 IssuerTipSlot = DeploymentOrbatTipSlotIndex;
+	for (ABattleUnit* Unit : Units)
+	{
+		if (!Unit)
+		{
+			continue;
+		}
+		if (ShouldSkipUnitForOrbatCommand(Unit))
+		{
+			Result.SkippedOrbatCount++;
+			continue;
+		}
+		Unit->IssueStopCommandInterrupt(ECommandPriority::High);
+		Unit->CommandLockIssuerSlotIndex = IssuerTipSlot != INDEX_NONE ? IssuerTipSlot : INDEX_NONE;
+		Result.IssuedCount++;
+	}
+	Result.bSuccess = Result.IssuedCount > 0;
+	Result.Message = FString::Printf(TEXT("已向 %d 个单位下达停止命令。"), Result.IssuedCount);
+	AppendOrbatPriorityHintToMessage(Result.Message, Result.SkippedOrbatCount);
+	return Result;
+}
+
+void ABattlemap_TestCursorPlayerController::InitializeBattleVoiceCommandUI()
+{
+	VoiceCommandSession = nullptr;
+	VoiceCommandOverlay = nullptr;
+	if (!GetWorld())
+	{
+		return;
+	}
+	if (!Cast<ABattlemap_TestCursorGameMode>(GetWorld()->GetAuthGameMode()))
+	{
+		return;
+	}
+
+	VoiceCommandOverlay = CreateWidget<UBattleVoiceCommandOverlayWidget>(this, UBattleVoiceCommandOverlayWidget::StaticClass());
+	if (VoiceCommandOverlay)
+	{
+		VoiceCommandOverlay->AddToViewport(50);
+		VoiceCommandOverlay->SetOverlayText(FString(), false);
+	}
+
+	VoiceCommandSession = NewObject<UBattleVoiceCommandSession>(this);
+	if (VoiceCommandSession)
+	{
+		VoiceCommandSession->Initialize(this, VoiceCommandOverlay);
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::TickBattleVoiceCommand(float DeltaSeconds)
+{
+	if (VoiceCommandSession)
+	{
+		VoiceCommandSession->Tick(DeltaSeconds);
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnVoiceCommandKeyPressed()
+{
+	if (VoiceCommandSession)
+	{
+		VoiceCommandSession->OnVoiceKeyPressed();
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnVoiceCommandKeyReleased()
+{
+	if (VoiceCommandSession)
+	{
+		VoiceCommandSession->OnVoiceKeyReleased();
+	}
+}
+
+void ABattlemap_TestCursorPlayerController::OnVoiceDebugInjectText()
+{
+	if (VoiceCommandSession)
+	{
+		VoiceCommandSession->InjectDebugPhrase(TEXT("\u547d\u4ee41\u8425\u79fb\u52a8\u52300,0"));
 	}
 }

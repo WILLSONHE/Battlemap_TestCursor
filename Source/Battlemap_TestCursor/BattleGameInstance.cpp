@@ -6,6 +6,8 @@
 #include "BattleSettingsWidget.h"
 #include "BattleMissionDebriefWidget.h"
 #include "BattlePauseMenuWidget.h"
+#include "BattleWindowsAudioInput.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
 #include "Blueprint/UserWidget.h"
@@ -88,6 +90,65 @@ void UBattleGameInstance::Init()
 	{
 		BattlePauseMenuClass = UBattlePauseMenuWidget::StaticClass();
 	}
+
+	LoadVoiceInputSettings();
+	RefreshMicrophoneDeviceList();
+}
+
+void UBattleGameInstance::LoadVoiceInputSettings()
+{
+	SelectedMicrophoneDeviceId.Reset();
+	SelectedMicrophoneDisplayName.Reset();
+	if (GConfig)
+	{
+		GConfig->GetString(TEXT("BattleVoice"), TEXT("MicrophoneDeviceId"), SelectedMicrophoneDeviceId, GGameUserSettingsIni);
+		GConfig->GetString(TEXT("BattleVoice"), TEXT("MicrophoneDisplayName"), SelectedMicrophoneDisplayName, GGameUserSettingsIni);
+	}
+}
+
+void UBattleGameInstance::SaveVoiceInputSettings() const
+{
+	if (GConfig)
+	{
+		GConfig->SetString(TEXT("BattleVoice"), TEXT("MicrophoneDeviceId"), *SelectedMicrophoneDeviceId, GGameUserSettingsIni);
+		GConfig->SetString(TEXT("BattleVoice"), TEXT("MicrophoneDisplayName"), *SelectedMicrophoneDisplayName, GGameUserSettingsIni);
+		GConfig->Flush(false, GGameUserSettingsIni);
+	}
+}
+
+bool UBattleGameInstance::RefreshMicrophoneDeviceList(FString* OutError)
+{
+	return FBattleWindowsAudioInput::EnumerateCaptureDevices(CachedMicrophoneDevices, OutError);
+}
+
+void UBattleGameInstance::SetSelectedMicrophoneByDisplayName(const FString& DisplayName)
+{
+	SelectedMicrophoneDisplayName = DisplayName;
+	SelectedMicrophoneDeviceId.Reset();
+	for (const FBattleAudioInputDeviceInfo& D : CachedMicrophoneDevices)
+	{
+		if (D.DisplayName == DisplayName)
+		{
+			SelectedMicrophoneDeviceId = D.DeviceId;
+			break;
+		}
+	}
+	SaveVoiceInputSettings();
+}
+
+float UBattleGameInstance::QuerySelectedMicrophonePeakLevel(FString* OutError) const
+{
+	return FBattleWindowsAudioInput::PollCaptureMeterPeak(OutError);
+}
+
+bool UBattleGameInstance::BeginMicrophoneLevelTest(FString* OutError)
+{
+	return FBattleWindowsAudioInput::StartCaptureMeter(SelectedMicrophoneDeviceId, OutError);
+}
+
+void UBattleGameInstance::EndMicrophoneLevelTest()
+{
+	FBattleWindowsAudioInput::StopCaptureMeter();
 }
 
 void UBattleGameInstance::LoadCareerFromDisk()

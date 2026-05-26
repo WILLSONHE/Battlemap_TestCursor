@@ -1,0 +1,7 @@
+﻿# Prevent Cursor from memory-mapping UBT/MSBuild artifacts.
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+Build/
+.vs/
